@@ -17,6 +17,12 @@ export async function addProxyConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
+  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  if (msgCtx.callbackQuery) {
+    await msgCtx.answerCallbackQuery();
+    return;
+  }
+
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
     await msgCtx.reply(`${e("cross")} Отменено.`);
     return;

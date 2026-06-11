@@ -18,6 +18,12 @@ export async function channelAvatarConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
+  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  if (msgCtx.callbackQuery) {
+    await msgCtx.answerCallbackQuery();
+    return;
+  }
+
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
     await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
@@ -57,6 +63,12 @@ export async function channelDescriptionConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
+  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  if (msgCtx.callbackQuery) {
+    await msgCtx.answerCallbackQuery();
+    return;
+  }
+
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
     await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
@@ -93,6 +105,12 @@ export async function channelTagsConv(
   const msgCtx = await conversation.wait();
   const userId = msgCtx.from?.id;
   if (!userId) return;
+
+  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  if (msgCtx.callbackQuery) {
+    await msgCtx.answerCallbackQuery();
+    return;
+  }
 
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
     await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });

@@ -27,6 +27,13 @@ export async function uniquifyConv(
   const userId = videoCtx.from?.id;
   if (!userId) return;
 
+  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  if (videoCtx.callbackQuery) {
+    await videoCtx.answerCallbackQuery();
+    // Let the callback handler process navigation — just exit the conversation
+    return;
+  }
+
   if (videoCtx.message?.text === "/cancel" || videoCtx.message?.text === "/start") {
     await videoCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
