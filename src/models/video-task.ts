@@ -17,9 +17,10 @@ const videoTaskSchema = new Schema(
       emoji: { type: Boolean, default: false },
       blur: { type: Boolean, default: false },
       colorCorrection: { type: Boolean, default: false },
-      speedChange: { type: Boolean, default: false },
+      glitch: { type: Boolean, default: false },
+      noise: { type: Boolean, default: false },
+      mirror: { type: Boolean, default: false },
       metadataStrip: { type: Boolean, default: true },
-      microTrim: { type: Boolean, default: false },
     },
     status: {
       type: String,

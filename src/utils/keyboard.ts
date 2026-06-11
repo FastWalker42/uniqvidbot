@@ -8,6 +8,7 @@ export interface UniqFlags {
   colorCorrection: boolean;
   glitch: boolean;
   noise: boolean;
+  mirror: boolean;
 }
 
 /** Main menu keyboard shown after /start */
@@ -66,6 +67,12 @@ export function uniqToggleKeyboard(flags: UniqFlags): InlineKeyboard {
     flags.noise ? "Шум: ВКЛ" : "Шум: ВЫКЛ",
     "uniq:toggle:noise",
   ).icon(flags.noise ? iconId("toggleOn") : iconId("toggleOff")).row();
+
+  // Mirror toggle
+  kb.text(
+    flags.mirror ? "Отзеркалить: ВКЛ" : "Отзеркалить: ВЫКЛ",
+    "uniq:toggle:mirror",
+  ).icon(flags.mirror ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   // Start processing
   kb.text("Начать обработку", "uniq:start").icon(iconId("check")).row();

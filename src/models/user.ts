@@ -15,6 +15,7 @@ const userSchema = new Schema(
       colorCorrection: { type: Boolean, default: true },
       glitch: { type: Boolean, default: true },
       noise: { type: Boolean, default: true },
+      mirror: { type: Boolean, default: false },
     },
   },
   { timestamps: true },

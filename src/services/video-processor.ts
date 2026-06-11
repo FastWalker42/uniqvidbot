@@ -1,4 +1,4 @@
-import ffmpeg from "fluent-ffmpeg";
+import { $ } from "bun";
 import { randomInt } from "node:crypto";
 import { join } from "node:path";
 import { config } from "../config";
@@ -17,6 +17,8 @@ export interface UniqOptions {
   glitch?: boolean;
   /** Visual noise / grain overlay */
   noise?: boolean;
+  /** Mirror/flip the video horizontally */
+  mirror?: boolean;
   /** Strip all metadata — always true */
   metadataStrip?: boolean;
 }
@@ -26,7 +28,7 @@ export interface UniqResult {
   appliedEffects: string[];
 }
 
-/** Effect intensity 0-10% for each enabled effect */
+/** Effect intensity 0-10 for each enabled effect */
 export interface EffectIntensities {
   blur: number;          // 0-10
   colorCorrection: number; // 0-10
@@ -34,38 +36,27 @@ export interface EffectIntensities {
   noise: number;         // 0-10
 }
 
+export interface VideoInfo {
+  duration: number;
+  width: number;
+  height: number;
+}
+
 // ─── Built-in emoji list ──────────────────────────────────────────
 
-const OVERLAY_EMOJIS = [
+export const OVERLAY_EMOJIS = [
   "🔥", "⭐", "😍", "😂", "💯", "🎉", "❤️", "👍", "😎", "🤩",
   "✨", "🌟", "💪", "🥳", "😇", "🤯", "😈", "👻", "🎃", "🎯",
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-if (config.ffmpegPath) ffmpeg.setFfmpegPath(config.ffmpegPath);
-if (config.ffprobePath) ffmpeg.setFfprobePath(config.ffprobePath);
-
-function getVideoInfo(inputPath: string): Promise<{ duration: number; width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(inputPath, (err, meta) => {
-      if (err) return reject(err);
-      const videoStream = meta.streams?.find((s) => s.codec_type === "video");
-      resolve({
-        duration: meta.format?.duration ?? 0,
-        width: videoStream?.width ?? 1080,
-        height: videoStream?.height ?? 1920,
-      });
-    });
-  });
-}
-
-function randomFloat(min: number, max: number, decimals = 4): number {
+export function randomFloat(min: number, max: number, decimals = 4): number {
   const factor = 10 ** decimals;
   return randomInt(Math.round(min * factor), Math.round(max * factor)) / factor;
 }
 
-function pickRandom<T>(arr: T[]): T {
+export function pickRandom<T>(arr: T[]): T {
   return arr[randomInt(0, arr.length)];
 }
 
@@ -74,7 +65,7 @@ function pickRandom<T>(arr: T[]): T {
  * Guarantees at least 2 non-zero intensities (among non-emoji effects).
  * Emoji is always applied if enabled (not affected by intensity).
  */
-function rollIntensities(options: UniqOptions): EffectIntensities {
+export function rollIntensities(options: UniqOptions): EffectIntensities {
   const enabledKeys: (keyof EffectIntensities)[] = [];
   if (options.blur) enabledKeys.push("blur");
   if (options.colorCorrection) enabledKeys.push("colorCorrection");
@@ -109,7 +100,7 @@ function rollIntensities(options: UniqOptions): EffectIntensities {
 
 // ─── Emoji helper ─────────────────────────────────────────────────
 
-function buildEmojiFilter(duration: number): { filter: string; label: string } {
+export function buildEmojiFilter(duration: number): { filter: string; label: string } {
   const emoji = pickRandom(OVERLAY_EMOJIS);
   const corner = randomInt(0, 4);
   const margin = randomInt(2, 6);
@@ -137,20 +128,180 @@ function buildEmojiFilter(duration: number): { filter: string; label: string } {
   }
 }
 
-// ─── Main processing function ─────────────────────────────────────
+// ─── Video info via Bun Shell ─────────────────────────────────────
 
 /**
- * Apply uniquification effects to a video file.
+ * Probe video metadata via ffprobe using Bun Shell.
+ */
+export async function getVideoInfo(inputPath: string): Promise<VideoInfo> {
+  const ffprobe = config.ffprobePath || "ffprobe";
+  try {
+    const output = await $`${ffprobe} -v quiet -print_format json -show_format -show_streams ${inputPath}`.text();
+    const meta = JSON.parse(output);
+    const videoStream = meta.streams?.find((s: any) => s.codec_type === "video");
+    return {
+      duration: Number(meta.format?.duration) || 0,
+      width: videoStream?.width ?? 1080,
+      height: videoStream?.height ?? 1920,
+    };
+  } catch (err) {
+    throw new Error(`ffprobe failed: ${(err as Error).message}`);
+  }
+}
+
+// ─── Filter builder ───────────────────────────────────────────────
+
+/**
+ * Build the FFmpeg filter string and determine filter type.
+ * Returns the filter type (complex / simple / none), the filter value,
+ * and a list of human-readable applied effect labels.
+ */
+export function buildFfmpegFilter(
+  options: UniqOptions,
+  videoInfo: VideoInfo,
+): {
+  filterType: "complex" | "simple" | "none";
+  filterValue: string;
+  appliedEffects: string[];
+} {
+  const { duration } = videoInfo;
+  const intensity = rollIntensities(options);
+  const appliedEffects: string[] = [];
+
+  const hasEmoji = !!options.emoji;
+  const hasBlur = options.blur && intensity.blur > 0;
+  const hasColor = options.colorCorrection && intensity.colorCorrection > 0;
+  const hasGlitch = options.glitch && intensity.glitch > 0;
+  const hasNoise = options.noise && intensity.noise > 0;
+  const hasMirror = !!options.mirror;
+
+  // ── If blur is enabled with non-zero intensity, use complexFilter ──
+  if (hasBlur) {
+    const iFactor = intensity.blur / 10; // 0.0 - 1.0
+    const bw = Math.max(5, Math.round(randomInt(10, 35) * iFactor));
+    const bh = Math.max(5, Math.round(randomInt(10, 35) * iFactor));
+    const blurStrength = randomFloat(4, 15, 1) * iFactor;
+
+    const parts: string[] = [];
+    parts.push(`[0:v]split=2[base][top]`);
+    parts.push(`[base]boxblur=lr=${blurStrength.toFixed(1)}:lr=${blurStrength.toFixed(1)}:cr=${blurStrength.toFixed(1)}:cr=${blurStrength.toFixed(1)}[blurred]`);
+
+    const topFilters: string[] = [];
+
+    if (hasEmoji) {
+      const { filter, label } = buildEmojiFilter(duration);
+      topFilters.push(filter);
+      appliedEffects.push(label);
+    }
+
+    if (hasMirror) {
+      topFilters.push("hflip");
+      appliedEffects.push("mirror");
+    }
+
+    if (hasColor) {
+      const cFactor = intensity.colorCorrection / 10;
+      const brightness = randomFloat(-0.03, 0.03) * cFactor;
+      const contrast = 1 + (randomFloat(-0.03, 0.03) * cFactor);
+      const saturation = 1 + (randomFloat(-0.03, 0.03) * cFactor);
+      topFilters.push(`eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`);
+      appliedEffects.push(`color:bri=${brightness.toFixed(3)}`);
+    }
+
+    if (hasGlitch) {
+      const gFactor = intensity.glitch / 10;
+      const shiftPx = Math.round(randomInt(2, 20) * gFactor);
+      // Chroma shift via overlay with slight offset
+      topFilters.push(`split=2[gl_a][gl_b]`);
+      topFilters.push(`[gl_b]format=rgba,colorchannelmixer=rr=1:rb=${randomFloat(0.01, 0.05) * gFactor}:br=${randomFloat(0.01, 0.05) * gFactor}:bb=1[gl_shifted]`);
+      topFilters.push(`[gl_a][gl_shifted]overlay=${shiftPx}:0`);
+      appliedEffects.push(`glitch:shift=${shiftPx}px`);
+    }
+
+    if (hasNoise) {
+      const nFactor = intensity.noise / 10;
+      const noiseStrength = Math.round(randomInt(3, 20) * nFactor);
+      topFilters.push(`noise=alls=${noiseStrength}:allf=t+u`);
+      appliedEffects.push(`noise:str=${noiseStrength}`);
+    }
+
+    const cropExpr = `crop=iw-${2 * bw}:ih-${2 * bh}:${bw}:${bh}`;
+    if (topFilters.length > 0) {
+      parts.push(`[top]${topFilters.join(",")},${cropExpr}[processed]`);
+    } else {
+      parts.push(`[top]${cropExpr}[processed]`);
+    }
+
+    parts.push(`[blurred][processed]overlay=${bw}:${bh}`);
+    appliedEffects.push(`edge_blur:${bw}px:sigma=${blurStrength.toFixed(1)}`);
+
+    return {
+      filterType: "complex",
+      filterValue: parts.join(";"),
+      appliedEffects,
+    };
+  }
+
+  // ── No blur — simple videoFilters chain ──
+  const vFilters: string[] = [];
+
+  if (hasEmoji) {
+    const { filter, label } = buildEmojiFilter(duration);
+    vFilters.push(filter);
+    appliedEffects.push(label);
+  }
+
+  if (hasMirror) {
+    vFilters.push("hflip");
+    appliedEffects.push("mirror");
+  }
+
+  if (hasColor) {
+    const cFactor = intensity.colorCorrection / 10;
+    const brightness = randomFloat(-0.03, 0.03) * cFactor;
+    const contrast = 1 + (randomFloat(-0.03, 0.03) * cFactor);
+    const saturation = 1 + (randomFloat(-0.03, 0.03) * cFactor);
+    vFilters.push(`eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`);
+    appliedEffects.push(`color:bri=${brightness.toFixed(3)}`);
+  }
+
+  if (hasGlitch) {
+    // For non-blur path, use simpler glitch: just chroma shift via colorchannelmixer
+    const gFactor = intensity.glitch / 10;
+    const rbMix = randomFloat(0.01, 0.05) * gFactor;
+    const brMix = randomFloat(0.01, 0.05) * gFactor;
+    vFilters.push(`colorchannelmixer=rr=1:rb=${rbMix.toFixed(3)}:br=${brMix.toFixed(3)}:bb=1`);
+    appliedEffects.push(`glitch:chroma_shift`);
+  }
+
+  if (hasNoise) {
+    const nFactor = intensity.noise / 10;
+    const noiseStrength = Math.round(randomInt(3, 20) * nFactor);
+    vFilters.push(`noise=alls=${noiseStrength}:allf=t+u`);
+    appliedEffects.push(`noise:str=${noiseStrength}`);
+  }
+
+  if (vFilters.length > 0) {
+    return {
+      filterType: "simple",
+      filterValue: vFilters.join(","),
+      appliedEffects,
+    };
+  }
+
+  return {
+    filterType: "none",
+    filterValue: "",
+    appliedEffects,
+  };
+}
+
+// ─── Single video processing via Bun Shell ────────────────────────
+
+/**
+ * Apply uniquification effects to a single video file using Bun Shell.
  * Each call produces a visually different output even with the same options,
  * because random parameters are re-rolled each time.
- *
- * Effects and their intensity-based ranges:
- * - Emoji: always applied if enabled (not intensity-based)
- * - Blur: edge blur width/strength scales 0-10% intensity
- * - Color correction: brightness/contrast/saturation scales 0-10% intensity
- * - Glitch: horizontal shift + color channel split scales 0-10% intensity
- * - Noise: grain strength scales 0-10% intensity
- * - Metadata strip: always on
  */
 export async function uniquifyVideo(
   inputPath: string,
@@ -159,157 +310,108 @@ export async function uniquifyVideo(
   const outDir = await ensureDownloadDir("processed");
   const outName = uniqueFilename("uniq", "mp4");
   const outputPath = join(outDir, outName);
-  const appliedEffects: string[] = [];
 
-  const { duration, width, height } = await getVideoInfo(inputPath);
+  const videoInfo = await getVideoInfo(inputPath);
+  const { filterType, filterValue, appliedEffects } = buildFfmpegFilter(options, videoInfo);
 
-  // Roll intensities for this copy
-  const intensity = rollIntensities(options);
+  const ffmpeg = config.ffmpegPath || "ffmpeg";
 
-  return new Promise<UniqResult>((resolve, reject) => {
-    let cmd = ffmpeg(inputPath);
-
-    const hasEmoji = !!options.emoji;
-    const hasBlur = options.blur && intensity.blur > 0;
-    const hasColor = options.colorCorrection && intensity.colorCorrection > 0;
-    const hasGlitch = options.glitch && intensity.glitch > 0;
-    const hasNoise = options.noise && intensity.noise > 0;
-
-    // ── If blur is enabled with non-zero intensity, use complexFilter ──
-    if (hasBlur) {
-      const iFactor = intensity.blur / 10; // 0.0 - 1.0
-      const bw = Math.max(5, Math.round(randomInt(10, 35) * iFactor));
-      const bh = Math.max(5, Math.round(randomInt(10, 35) * iFactor));
-      const blurStrength = randomFloat(4, 15, 1) * iFactor;
-
-      const parts: string[] = [];
-      parts.push(`[0:v]split=2[base][top]`);
-      parts.push(`[base]boxblur=lr=${blurStrength.toFixed(1)}:lr=${blurStrength.toFixed(1)}:cr=${blurStrength.toFixed(1)}:cr=${blurStrength.toFixed(1)}[blurred]`);
-
-      const topFilters: string[] = [];
-
-      if (hasEmoji) {
-        const { filter, label } = buildEmojiFilter(duration);
-        topFilters.push(filter);
-        appliedEffects.push(label);
-      }
-
-      if (hasColor) {
-        const cFactor = intensity.colorCorrection / 10;
-        const brightness = randomFloat(-0.03, 0.03) * cFactor;
-        const contrast = 1 + (randomFloat(-0.03, 0.03) * cFactor);
-        const saturation = 1 + (randomFloat(-0.03, 0.03) * cFactor);
-        topFilters.push(`eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`);
-        appliedEffects.push(`color:${intensity.colorCorrection}%:bri=${brightness.toFixed(3)}`);
-      }
-
-      if (hasGlitch) {
-        const gFactor = intensity.glitch / 10;
-        const shiftPx = Math.round(randomInt(2, 20) * gFactor);
-        // Chroma shift via overlay with slight offset
-        topFilters.push(`split=2[gl_a][gl_b]`);
-        topFilters.push(`[gl_b]format=rgba,colorchannelmixer=rr=1:rb=${randomFloat(0.01, 0.05) * gFactor}:br=${randomFloat(0.01, 0.05) * gFactor}:bb=1[gl_shifted]`);
-        topFilters.push(`[gl_a][gl_shifted]overlay=${shiftPx}:0`);
-        appliedEffects.push(`glitch:${intensity.glitch}%:shift=${shiftPx}px`);
-      }
-
-      if (hasNoise) {
-        const nFactor = intensity.noise / 10;
-        const noiseStrength = Math.round(randomInt(3, 20) * nFactor);
-        topFilters.push(`noise=alls=${noiseStrength}:allf=t+u`);
-        appliedEffects.push(`noise:${intensity.noise}%:str=${noiseStrength}`);
-      }
-
-      const cropExpr = `crop=iw-${2 * bw}:ih-${2 * bh}:${bw}:${bh}`;
-      if (topFilters.length > 0) {
-        parts.push(`[top]${topFilters.join(",")},${cropExpr}[processed]`);
-      } else {
-        parts.push(`[top]${cropExpr}[processed]`);
-      }
-
-      parts.push(`[blurred][processed]overlay=${bw}:${bh}`);
-      appliedEffects.push(`edge_blur:${intensity.blur}%:${bw}px:sigma=${blurStrength.toFixed(1)}`);
-
-      const filterGraph = parts.join(";");
-      cmd = cmd.complexFilter(filterGraph);
-
+  try {
+    if (filterType === "complex") {
+      await $`${ffmpeg} -y -i ${inputPath} -filter_complex ${filterValue} -map 0:a? -c:a copy -map_metadata -1 -movflags +faststart -preset fast ${outputPath}`.quiet();
+    } else if (filterType === "simple") {
+      await $`${ffmpeg} -y -i ${inputPath} -vf ${filterValue} -map 0:a? -c:a copy -map_metadata -1 -movflags +faststart -preset fast ${outputPath}`.quiet();
     } else {
-      // ── No blur — simple videoFilters chain ──
-      const vFilters: string[] = [];
-
-      if (hasEmoji) {
-        const { filter, label } = buildEmojiFilter(duration);
-        vFilters.push(filter);
-        appliedEffects.push(label);
-      }
-
-      if (hasColor) {
-        const cFactor = intensity.colorCorrection / 10;
-        const brightness = randomFloat(-0.03, 0.03) * cFactor;
-        const contrast = 1 + (randomFloat(-0.03, 0.03) * cFactor);
-        const saturation = 1 + (randomFloat(-0.03, 0.03) * cFactor);
-        vFilters.push(`eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`);
-        appliedEffects.push(`color:${intensity.colorCorrection}%:bri=${brightness.toFixed(3)}`);
-      }
-
-      if (hasGlitch) {
-        // For non-blur path, use simpler glitch: just chroma shift via colorchannelmixer
-        // (can't use split/overlay in -vf without complexFilter, so use a simpler approach)
-        const gFactor = intensity.glitch / 10;
-        const rbMix = randomFloat(0.01, 0.05) * gFactor;
-        const brMix = randomFloat(0.01, 0.05) * gFactor;
-        vFilters.push(`colorchannelmixer=rr=1:rb=${rbMix.toFixed(3)}:br=${brMix.toFixed(3)}:bb=1`);
-        appliedEffects.push(`glitch:${intensity.glitch}%:chroma_shift`);
-      }
-
-      if (hasNoise) {
-        const nFactor = intensity.noise / 10;
-        const noiseStrength = Math.round(randomInt(3, 20) * nFactor);
-        vFilters.push(`noise=alls=${noiseStrength}:allf=t+u`);
-        appliedEffects.push(`noise:${intensity.noise}%:str=${noiseStrength}`);
-      }
-
-      if (vFilters.length > 0) {
-        cmd = cmd.videoFilters(vFilters);
-      }
+      await $`${ffmpeg} -y -i ${inputPath} -map_metadata -1 -movflags +faststart -preset fast ${outputPath}`.quiet();
     }
+  } catch (err) {
+    await safeDelete(outputPath);
+    throw new Error(`FFmpeg failed: ${(err as Error).message}`);
+  }
 
-    // Metadata strip — always on
-    cmd = cmd.outputOptions("-map_metadata", "-1");
-    appliedEffects.push("metadata_strip");
+  appliedEffects.push("metadata_strip");
+  return { outputPath, appliedEffects };
+}
 
-    // General output options
-    cmd = cmd
-      .outputOptions("-movflags", "+faststart")
-      .outputOptions("-preset", "fast")
-      .output(outputPath);
+// ─── Worker-based parallel batch processing ───────────────────────
 
-    cmd.on("end", () => {
-      resolve({ outputPath, appliedEffects });
-    });
+/**
+ * Wrap a single Worker lifecycle in a Promise.
+ * Posts data to the worker, waits for a single response, then terminates.
+ */
+function runWorker(workerUrl: string, data: {
+  id: number;
+  inputPath: string;
+  outputPath: string;
+  options: UniqOptions;
+  videoInfo: VideoInfo;
+  ffmpegPath?: string;
+}): Promise<UniqResult> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(workerUrl);
 
-    cmd.on("error", (err) => {
-      safeDelete(outputPath);
-      reject(err);
-    });
+    worker.onmessage = (event) => {
+      const { success, appliedEffects, error } = event.data;
+      worker.terminate();
 
-    cmd.run();
+      if (success) {
+        resolve({ outputPath: data.outputPath, appliedEffects });
+      } else {
+        reject(new Error(error || "Worker failed"));
+      }
+    };
+
+    worker.onerror = (err) => {
+      worker.terminate();
+      reject(new Error(`Worker error: ${err.message || String(err)}`));
+    };
+
+    worker.postMessage(data);
   });
 }
 
 /**
- * Produce multiple unique copies of a video with random variations.
- * Each copy gets independently randomized effect parameters and intensities.
+ * Produce multiple unique copies of a video in FULL PARALLEL using Bun Workers.
+ * Each copy is processed in its own Worker thread with its own Bun Shell
+ * execution — no sequential blocking, no event loop stall.
+ *
+ * @param onCopyDone Optional callback fired as each copy finishes,
+ *                   allowing the caller to stream results immediately.
  */
 export async function uniquifyVideoBatch(
   inputPath: string,
   count: number,
   options: UniqOptions,
+  onCopyDone?: (index: number, result: UniqResult) => void | Promise<void>,
 ): Promise<UniqResult[]> {
-  const results: UniqResult[] = [];
-  for (let i = 0; i < count; i++) {
-    const result = await uniquifyVideo(inputPath, options);
-    results.push(result);
-  }
-  return results;
+  const outDir = await ensureDownloadDir("processed");
+  const videoInfo = await getVideoInfo(inputPath);
+  const ffmpegPath = config.ffmpegPath || undefined;
+  const workerUrl = new URL("../workers/uniquify-worker.ts", import.meta.url).href;
+
+  // Launch all workers in parallel — Promise.all gives true concurrent execution
+  const promises = Array.from({ length: count }, async (_, i) => {
+    const outName = uniqueFilename("uniq", "mp4");
+    const outputPath = join(outDir, outName);
+
+    try {
+      const result = await runWorker(workerUrl, {
+        id: i,
+        inputPath,
+        outputPath,
+        options,
+        videoInfo,
+        ffmpegPath,
+      });
+
+      // Stream result to caller as soon as this copy finishes
+      if (onCopyDone) await onCopyDone(i, result);
+      return result;
+    } catch (err) {
+      await safeDelete(outputPath);
+      throw err;
+    }
+  });
+
+  return Promise.all(promises);
 }

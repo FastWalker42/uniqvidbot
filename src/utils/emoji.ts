@@ -49,6 +49,9 @@ const EMOJI_MAP = {
         camera:     { id: '5881806211195605908', fallback: '📸' },
         control:    { id: '5776424837786374634', fallback: '🎛' },
 
+        // ── Time ──
+        clock:      { id: '6035209663064419402', fallback: '⏳' },
+
         // ── Tools ──
         wrench:     { id: '5962952497197748583', fallback: '🔧' },
         trash:      { id: '6039522349517115015', fallback: '🗑' },
@@ -56,6 +59,9 @@ const EMOJI_MAP = {
         lock:       { id: '6037249452824072506', fallback: '🔒' },
         mag:        { id: '5276395476646653290', fallback: '🔍' },
         cardIndex:  { id: '5766994197705921104', fallback: '🗂' },
+
+        // ── Mirror ──
+        mirror:     { id: '5329494003805218619', fallback: '🪞' },
 
         // ── Duplicate / existing from template ──
         bot:        { id: '5276127848644503161', fallback: '🤖' },
