@@ -270,15 +270,24 @@ async function showTaskStatus(ctx: BotContext) {
     return;
   }
 
+  const statusLabel: Record<string, string> = {
+    pending: "В очереди",
+    processing: "В обработке",
+    done: "Выполнена",
+    failed: "Ошибка",
+  };
+
   const lines = tasks.map((t) => {
     const icon = t.status === "done" ? e("check") : t.status === "failed" ? e("cross") : t.status === "processing" ? e("refresh") : e("download");
     const title = t.title || t.originalPath.split("/").pop() || "Видео";
-    return `${icon} ${title} — ${t.status}`;
+    const date = t.updatedAt
+      ? new Date(t.updatedAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "—";
+    return `<blockquote>${icon} <b>${title}</b>\n${e("clipboard")} ${statusLabel[t.status] ?? t.status}  •  ${date}</blockquote>`;
   });
 
   await ctx.editMessageText(
-    `${e("stats")} <b>Статус задач</b>\n\n${lines.join("\n")}\n\n` +
-    `<blockquote>${e("refresh")} = в обработке, ${e("download")} = в очереди</blockquote>`,
+    `${e("stats")} <b>Статус задач</b>\n\n${lines.join("\n")}`,
     { reply_markup: taskStatusKeyboard() },
   );
 }
