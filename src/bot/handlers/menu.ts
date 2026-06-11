@@ -16,7 +16,7 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery("menu:back", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      `${e("video")} <b>UniqVid Bot</b>\n\nВыбери действие:`,
+      `${e("logo")} <b>UniqVid Bot</b>\n\nВыбери действие:`,
       { reply_markup: mainMenuKeyboard() },
     );
   });

@@ -29,7 +29,7 @@ export function registerStartHandler(bot: Composer<BotContext>) {
     }
 
     await ctx.reply(
-      `${e("video")} <b>UniqVid Bot</b>\n\n` +
+      `${e("logo")} <b>UniqVid Bot</b>\n\n` +
       `Привет, ${from.first_name}!\n` +
       `Я помогу тебе загружать уникальные Shorts на YouTube.\n\n` +
       `<blockquote>${e("sparkles")} Уникализация видео через FFmpeg ${e("sparkles")}\n` +
