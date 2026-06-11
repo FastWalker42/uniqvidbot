@@ -3,6 +3,7 @@ import { VideoTask } from "../../models/index";
 import { uniquifyVideoBatch, type UniqOptions } from "../../services/video-processor";
 import { ensureDownloadDir, uniqueFilename, safeDelete } from "../../utils/file-utils";
 import { mainMenuKeyboard, uniqModeKeyboard } from "../../utils/keyboard";
+import { e } from "../../utils/emoji";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { InputFile } from "grammy";
@@ -27,25 +28,24 @@ export async function uniquifyConv(
   if (!userId) return;
 
   if (videoCtx.message?.text === "/cancel" || videoCtx.message?.text === "/start") {
-    await videoCtx.reply("❌ Отменено.", { reply_markup: mainMenuKeyboard() });
+    await videoCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   const video = videoCtx.message?.video || videoCtx.message?.document;
   if (!video) {
     await videoCtx.reply(
-      "❌ Отправь видеофайл (MP4).",
+      `${e("cross")} Отправь видеофайл (MP4).`,
       { reply_markup: mainMenuKeyboard() },
     );
     return;
   }
 
-  // Check file is video
   const isVideo = !!videoCtx.message?.video ||
     (videoCtx.message?.document?.mime_type?.startsWith("video/") ?? false);
   if (!isVideo) {
     await videoCtx.reply(
-      "❌ Это не видеофайл. Отправь MP4.",
+      `${e("cross")} Это не видеофайл. Отправь MP4.`,
       { reply_markup: mainMenuKeyboard() },
     );
     return;
@@ -55,7 +55,7 @@ export async function uniquifyConv(
   const tgFileId = video.file_id;
 
   // Download video
-  const statusMsg = await videoCtx.reply("⬇️ Скачиваю видео...");
+  const statusMsg = await videoCtx.reply(`${e("download")} Скачиваю видео...`);
   const downloadDir = await ensureDownloadDir("originals");
   const localName = uniqueFilename("video", "mp4");
   const localPath = join(downloadDir, localName);
@@ -71,67 +71,79 @@ export async function uniquifyConv(
     await Bun.write(localPath, Buffer.from(buffer));
   } catch (err) {
     await safeDelete(localPath);
-    await ctx.api.editMessageText(userId, statusMsg.message_id, `❌ Ошибка скачивания: ${(err as Error).message}`);
+    await ctx.api.editMessageText(userId, statusMsg.message_id, `${e("cross")} Ошибка скачивания: ${(err as Error).message}`);
     return;
   }
 
-  await ctx.api.editMessageText(userId, statusMsg.message_id, "✅ Видео скачано.");
+  await ctx.api.editMessageText(userId, statusMsg.message_id, `${e("check")} Видео скачано.`);
 
   // ── Step 2: Ask how many copies ──
-  await videoCtx.reply("🔢 Сколько копий этого видео создать? (1–20)");
+  await videoCtx.reply(
+    `${e("control")} Сколько копий этого видео создать? (1–20)`,
+  );
   const countCtx = await conversation.wait();
 
   const countText = countCtx.message?.text?.trim();
   if (!countText) {
     await safeDelete(localPath);
-    await countCtx.reply("❌ Нужно указать число.", { reply_markup: mainMenuKeyboard() });
+    await countCtx.reply(`${e("cross")} Нужно указать число.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   const count = parseInt(countText, 10);
   if (isNaN(count) || count < 1 || count > 20) {
     await safeDelete(localPath);
-    await countCtx.reply("❌ Число должно быть от 1 до 20.", { reply_markup: mainMenuKeyboard() });
+    await countCtx.reply(`${e("cross")} Число должно быть от 1 до 20.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   // ── Step 3: Ask uniquification mode ──
-  await countCtx.reply("🎨 Включить уникализацию?", { reply_markup: uniqModeKeyboard() });
+  await countCtx.reply(
+    `${e("art")} Включить уникализацию?`,
+    { reply_markup: uniqModeKeyboard() },
+  );
   const modeCtx = await conversation.wait();
 
   const callbackData = modeCtx.callbackQuery?.data;
   if (!callbackData) {
     await safeDelete(localPath);
-    await modeCtx.reply("❌ Выбери режим.", { reply_markup: mainMenuKeyboard() });
+    await modeCtx.reply(`${e("cross")} Выбери режим.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   await modeCtx.answerCallbackQuery();
 
   let options: UniqOptions;
+  let modeLabel: string;
   switch (callbackData) {
     case "uniq:mode_full":
       options = { emoji: true, blur: true, colorCorrection: true, speedChange: true, metadataStrip: true, microTrim: true };
+      modeLabel = "Полная уникализация";
       break;
     case "uniq:mode_effects":
       options = { emoji: true, blur: true, colorCorrection: true, metadataStrip: true };
+      modeLabel = "Только визуальные эффекты";
       break;
     case "uniq:mode_structure":
       options = { speedChange: true, metadataStrip: true, microTrim: true };
+      modeLabel = "Только структурные изменения";
       break;
     case "uniq:mode_none":
       options = { metadataStrip: true };
+      modeLabel = "Только очистка метаданных";
       break;
     default:
       await safeDelete(localPath);
-      await modeCtx.reply("❌ Неизвестный режим.", { reply_markup: mainMenuKeyboard() });
+      await modeCtx.reply(`${e("cross")} Неизвестный режим.`, { reply_markup: mainMenuKeyboard() });
       return;
   }
 
   // ── Step 4: Process and send ──
-  const processingMsg = await modeCtx.reply(`🔄 Обрабатываю ${count} копий... Это может занять некоторое время.`);
+  const processingMsg = await modeCtx.reply(
+    `${e("refresh")} Обрабатываю ${count} копий...\n\n` +
+    `<blockquote>${e("art")} Режим: ${modeLabel}\n${e("zap")} Это может занять некоторое время</blockquote>`,
+  );
 
-  // Create a VideoTask for tracking
   const task = await VideoTask.create({
     userId,
     originalPath: localPath,
@@ -144,12 +156,10 @@ export async function uniquifyConv(
   try {
     const results = await uniquifyVideoBatch(localPath, count, options);
 
-    // Update task status
     task.status = "done";
     task.processedPath = results.map((r) => r.outputPath).join(";");
     await task.save();
 
-    // Send each result as a file
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       if (!existsSync(result.outputPath)) continue;
@@ -157,7 +167,9 @@ export async function uniquifyConv(
       await modeCtx.replyWithDocument(
         new InputFile(result.outputPath),
         {
-          caption: `🎨 Уникальная копия ${i + 1}/${count}\nЭффекты: ${result.appliedEffects.join(", ")}`,
+          caption:
+            `${e("art")} Уникальная копия ${i + 1}/${count}\n` +
+            `<blockquote>${e("sparkles")} Эффекты: ${result.appliedEffects.join(", ")}</blockquote>`,
         },
       );
     }
@@ -165,7 +177,7 @@ export async function uniquifyConv(
     await ctx.api.editMessageText(
       userId,
       processingMsg.message_id,
-      `✅ Готово! Создано ${count} уникальных копий.`,
+      `${e("check")} Готово! Создано ${count} уникальных копий.`,
     );
   } catch (err) {
     task.status = "failed";
@@ -175,13 +187,11 @@ export async function uniquifyConv(
     await ctx.api.editMessageText(
       userId,
       processingMsg.message_id,
-      `❌ Ошибка обработки: ${(err as Error).message}`,
+      `${e("cross")} Ошибка обработки: ${(err as Error).message}`,
     );
   } finally {
-    // Clean up original
     await safeDelete(localPath);
   }
 
-  // Send main menu again
   await modeCtx.reply("Выбери действие:", { reply_markup: mainMenuKeyboard() });
 }

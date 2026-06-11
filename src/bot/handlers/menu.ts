@@ -5,6 +5,7 @@ import {
   mainMenuKeyboard, backKeyboard, accountListKeyboard,
   channelSettingsKeyboard, taskStatusKeyboard,
 } from "../../utils/keyboard";
+import { e, pe } from "../../utils/emoji";
 
 /**
  * Register all inline menu callback handlers.
@@ -15,7 +16,7 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery("menu:back", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>🎬 UniqVid Bot</b>\n\nВыбери действие:",
+      `${e("video")} <b>UniqVid Bot</b>\n\nВыбери действие:`,
       { reply_markup: mainMenuKeyboard() },
     );
   });
@@ -24,11 +25,12 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery("menu:add_account", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>➕ Добавить аккаунт</b>\n\n" +
-      "Отправь данные Google-аккаунта в формате:\n" +
-      "<code>Логин:Пароль:Резервная_почта</code>\n\n" +
-      "Или отправь текстовый файл (.txt) с аккаунтами (один на строку).\n\n" +
-      "Для этого просто напиши сообщение в чат.",
+      `${e("plus")} <b>Добавить аккаунт</b>\n\n` +
+      `Отправь данные Google-аккаунта в формате:\n` +
+      `<code>Логин:Пароль:Резервная_почта</code>\n\n` +
+      `Или отправь текстовый файл (.txt) с аккаунтами (один на строку).\n\n` +
+      `<blockquote>${e("key")} Данные хранятся только для тебя. Другие пользователи их не видят.</blockquote>\n\n` +
+      `Для этого просто напиши сообщение в чат.`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("addAccountConv");
@@ -38,13 +40,14 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery("menu:add_proxy", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>🌐 Добавить прокси</b>\n\n" +
-      "Отправь прокси в одном из форматов:\n" +
-      "• <code>IP:PORT:USER:PASS</code>\n" +
-      "• <code>USER:PASS@IP:PORT</code>\n" +
-      "• <code>IP:PORT</code> (без авторизации)\n\n" +
-      "Можно отправить несколько — по одному на строку.\n\n" +
-      "Напиши сообщение в чат.",
+      `${e("globe")} <b>Добавить прокси</b>\n\n` +
+      `Отправь прокси в одном из форматов:\n` +
+      `• <code>IP:PORT:USER:PASS</code>\n` +
+      `• <code>USER:PASS@IP:PORT</code>\n` +
+      `• <code>IP:PORT</code> (без авторизации)\n\n` +
+      `Можно отправить несколько — по одному на строку.\n\n` +
+      `<blockquote>${e("lock")} Прокси автоматически привязывается к загружаемому аккаунту.</blockquote>\n\n` +
+      `Напиши сообщение в чат.`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("addProxyConv");
@@ -58,15 +61,15 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
 
     if (accounts.length === 0) {
       await ctx.editMessageText(
-        "<b>⚙️ Настройка канала</b>\n\n" +
-        "У тебя пока нет аккаунтов. Сначала добавь аккаунт через «➕ Добавить аккаунт».",
+        `${e("settings")} <b>Настройка канала</b>\n\n` +
+        `У тебя пока нет аккаунтов. Сначала добавь аккаунт через «${pe("plus")} Добавить аккаунт».`,
         { reply_markup: backKeyboard() },
       );
       return;
     }
 
     await ctx.editMessageText(
-      "<b>⚙️ Настройка канала</b>\n\nВыбери аккаунт для настройки:",
+      `${e("settings")} <b>Настройка канала</b>\n\nВыбери аккаунт для настройки:`,
       { reply_markup: accountListKeyboard(accounts.map((a) => ({ _id: String(a._id), login: a.login }))) },
     );
   });
@@ -81,7 +84,7 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
       return;
     }
     await ctx.editMessageText(
-      `<b>⚙️ Настройка канала: ${account.login}</b>\n\nЧто хочешь настроить?`,
+      `${e("settings")} <b>Настройка канала: ${account.login}</b>\n\nЧто хочешь настроить?`,
       { reply_markup: channelSettingsKeyboard(accountId) },
     );
   });
@@ -90,7 +93,8 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery(/^chset:avatar:/, async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>🖼 Аватарка</b>\n\nОтправь картинку для аватарки канала прямо в чат.",
+      `${e("image")} <b>Аватарка</b>\n\nОтправь картинку для аватарки канала прямо в чат.\n\n` +
+      `<blockquote>Картинка будет установлена как аватар YouTube-канала через браузерную автоматизацию.</blockquote>`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("channelAvatarConv");
@@ -100,7 +104,8 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery(/^chset:description:/, async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>📝 Описание канала</b>\n\nОтправь текст для описания канала (раздел «О канале»).",
+      `${e("pencil")} <b>Описание канала</b>\n\nОтправь текст для описания канала (раздел «О канале»).\n\n` +
+      `<blockquote>Текст будет скопирован в раздел «О канале» на YouTube.</blockquote>`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("channelDescriptionConv");
@@ -110,8 +115,9 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery(/^chset:tags:/, async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>🏷 Теги канала</b>\n\nОтправь ключевые слова через запятую.\n" +
-      "Пример: <code>гейминг, обзоры, стрим</code>",
+      `${e("label")} <b>Теги канала</b>\n\nОтправь ключевые слова через запятую.\n` +
+      `Пример: <code>гейминг, обзоры, стрим</code>\n\n` +
+      `<blockquote>Теги будут применены в настройках канала на YouTube.</blockquote>`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("channelTagsConv");
@@ -122,8 +128,9 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
     await ctx.answerCallbackQuery();
     const accountId = ctx.callbackQuery.data!.split(":")[2];
     await ctx.editMessageText(
-      "<b>🤖 ИИ-настройка по примеру</b>\n\n" +
-      "Эта функция пока в разработке. Она позволит автоматически настроить канал по примеру другого канала.",
+      `${e("robot")} <b>ИИ-настройка по примеру</b>\n\n` +
+      `Эта функция пока в разработке. Она позволит автоматически настроить канал по примеру другого канала.\n\n` +
+      `<blockquote>ИИ проанализирует канал-образец и сгенерирует описание, теги и стиль.</blockquote>`,
       { reply_markup: channelSettingsKeyboard(accountId) },
     );
   });
@@ -132,10 +139,10 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery("menu:upload_shorts", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>🎬 Загрузить Shorts</b>\n\n" +
-      "Эта функция пока в разработке.\n" +
-      "Она позволит загружать видео на YouTube через браузерную автоматизацию.\n\n" +
-      "Пока ты можешь использовать кнопку «🎨 Уникализация» для обработки видео.",
+      `${e("video")} <b>Загрузить Shorts</b>\n\n` +
+      `Эта функция пока в разработке.\n` +
+      `Она позволит загружать видео на YouTube через браузерную автоматизацию.\n\n` +
+      `<blockquote>${e("art")} Пока ты можешь использовать кнопку «Уникализация» для обработки видео перед загрузкой.</blockquote>`,
       { reply_markup: backKeyboard() },
     );
   });
@@ -144,9 +151,11 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
   bot.callbackQuery("menu:uniquify", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
-      "<b>🎨 Уникализация видео</b>\n\n" +
-      "Отправь видеофайл (MP4, до 60 секунд) в чат.\n" +
-      "Бот создаст уникальные копии и отправит их тебе файлами.",
+      `${e("art")} <b>Уникализация видео</b>\n\n` +
+      `Отправь видеофайл (MP4, до 60 секунд) в чат.\n` +
+      `Бот создаст уникальные копии и отправит их тебе файлами.\n\n` +
+      `<blockquote>${e("sparkles")} Доступные эффекты: смайлики, размытие, цветокоррекция, микро-скорость, обрезка метаданных\n` +
+      `${e("zap")} Каждая копия — уникальна для анти-спам фильтров YouTube</blockquote>`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("uniquifyConv");
@@ -171,19 +180,20 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
 
     if (accounts.length === 0) {
       await ctx.editMessageText(
-        "<b>👤 Мои аккаунты</b>\n\nУ тебя пока нет аккаунтов.",
+        `${e("person")} <b>Мои аккаунты</b>\n\nУ тебя пока нет аккаунтов.`,
         { reply_markup: backKeyboard() },
       );
       return;
     }
 
     const lines = accounts.map((a) => {
-      const proxy = a.proxyId ? "🌐" : "🚫";
+      const proxy = a.proxyId ? e("globe") : e("cross");
       return `${proxy} <b>${a.login}</b>${a.backupEmail ? ` (${a.backupEmail})` : ""}`;
     });
 
     await ctx.editMessageText(
-      `<b>👤 Мои аккаунты</b>\n\n${lines.join("\n")}\n\n🌐 = прокси привязан, 🚫 = без прокси`,
+      `${e("person")} <b>Мои аккаунты</b>\n\n${lines.join("\n")}\n\n` +
+      `<blockquote>${e("globe")} = прокси привязан, ${e("cross")} = без прокси</blockquote>`,
       { reply_markup: backKeyboard() },
     );
   });
@@ -196,19 +206,20 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
 
     if (proxies.length === 0) {
       await ctx.editMessageText(
-        "<b>🌐 Мои прокси</b>\n\nУ тебя пока нет прокси.",
+        `${e("globe")} <b>Мои прокси</b>\n\nУ тебя пока нет прокси.`,
         { reply_markup: backKeyboard() },
       );
       return;
     }
 
     const lines = proxies.map((p) => {
-      const status = p.verified ? "✅" : "⚠️";
+      const status = p.verified ? e("check") : e("warning");
       return `${status} <code>${p.host}:${p.port}</code>${p.username ? ` (${p.username})` : ""}`;
     });
 
     await ctx.editMessageText(
-      `<b>🌐 Мои прокси</b>\n\n${lines.join("\n")}\n\n✅ = проверен, ⚠️ = не проверен`,
+      `${e("globe")} <b>Мои прокси</b>\n\n${lines.join("\n")}\n\n` +
+      `<blockquote>${e("check")} = проверен, ${e("warning")} = не проверен</blockquote>`,
       { reply_markup: backKeyboard() },
     );
   });
@@ -222,12 +233,12 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
       await ctx.answerCallbackQuery("Прокси не найден");
       return;
     }
-    const status = proxy.verified ? "✅ Проверен" : "⚠️ Не проверен";
+    const status = proxy.verified ? `${e("check")} Проверен` : `${e("warning")} Не проверен`;
     await ctx.editMessageText(
-      `<b>🌐 Прокси: ${proxy.host}:${proxy.port}</b>\n\n` +
-      `Пользователь: <code>${proxy.username || "—"}</code>\n` +
-      `Статус: ${status}\n` +
-      `Добавлен: ${proxy.createdAt?.toLocaleString("ru")}`,
+      `${e("globe")} <b>Прокси: ${proxy.host}:${proxy.port}</b>\n\n` +
+      `${e("person")} Пользователь: <code>${proxy.username || "—"}</code>\n` +
+      `${e("eye")} Статус: ${status}\n` +
+      `${e("clipboard")} Добавлен: ${proxy.createdAt?.toLocaleString("ru")}`,
       { reply_markup: backKeyboard() },
     );
   });
@@ -243,20 +254,21 @@ async function showTaskStatus(ctx: BotContext) {
 
   if (tasks.length === 0) {
     await ctx.editMessageText(
-      "<b>📊 Статус задач</b>\n\nУ тебя пока нет задач.",
+      `${e("stats")} <b>Статус задач</b>\n\nУ тебя пока нет задач.`,
       { reply_markup: backKeyboard() },
     );
     return;
   }
 
   const lines = tasks.map((t) => {
-    const icon = t.status === "done" ? "✅" : t.status === "failed" ? "❌" : t.status === "processing" ? "🔄" : "⏳";
+    const icon = t.status === "done" ? e("check") : t.status === "failed" ? e("cross") : t.status === "processing" ? e("refresh") : e("download");
     const title = t.title || t.originalPath.split("/").pop() || "Видео";
     return `${icon} ${title} — ${t.status}`;
   });
 
   await ctx.editMessageText(
-    `<b>📊 Статус задач</b>\n\n${lines.join("\n")}`,
+    `${e("stats")} <b>Статус задач</b>\n\n${lines.join("\n")}\n\n` +
+    `<blockquote>${e("refresh")} = в обработке, ${e("download")} = в очереди</blockquote>`,
     { reply_markup: taskStatusKeyboard() },
   );
 }

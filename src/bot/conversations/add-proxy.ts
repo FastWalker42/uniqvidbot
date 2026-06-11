@@ -2,6 +2,7 @@ import type { BotConversation, BotContext } from "../context";
 import { Proxy } from "../../models/index";
 import { parseProxyBatch } from "../../utils/proxy-parser";
 import { mainMenuKeyboard } from "../../utils/keyboard";
+import { e } from "../../utils/emoji";
 
 /**
  * Conversation: Add one or more proxies.
@@ -17,13 +18,13 @@ export async function addProxyConv(
   if (!userId) return;
 
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
-    await msgCtx.reply("❌ Отменено.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   if (!msgCtx.message?.text) {
     await msgCtx.reply(
-      "❌ Отправь прокси текстом.\nФормат: <code>IP:PORT:USER:PASS</code> или <code>USER:PASS@IP:PORT</code>",
+      `${e("cross")} Отправь прокси текстом.\nФормат: <code>IP:PORT:USER:PASS</code> или <code>USER:PASS@IP:PORT</code>`,
       { reply_markup: mainMenuKeyboard() },
     );
     return;
@@ -39,7 +40,6 @@ export async function addProxyConv(
     const existing = await Proxy.findOne({ userId, host: proxy.host, port: proxy.port });
     if (existing) {
       duplicateCount++;
-      // Update credentials if changed
       existing.username = proxy.username;
       existing.password = proxy.password;
       await existing.save();
@@ -57,11 +57,11 @@ export async function addProxyConv(
   }
 
   // ── Result ──
-  let msg = `<b>🌐 Прокси добавлены</b>\n\n`;
-  msg += `✅ Новых: ${addedCount}`;
-  if (duplicateCount > 0) msg += `\n🔄 Обновлено: ${duplicateCount}`;
+  let msg = `${e("globe")} <b>Прокси добавлены</b>\n\n`;
+  msg += `${e("check")} Новых: ${addedCount}`;
+  if (duplicateCount > 0) msg += `\n${e("refresh")} Обновлено: ${duplicateCount}`;
   if (invalid.length > 0) {
-    msg += `\n\n❌ Ошибки в строках:\n<code>${invalid.slice(0, 5).join("\n")}</code>`;
+    msg += `\n\n${e("cross")} Ошибки в строках:\n<code>${invalid.slice(0, 5).join("\n")}</code>`;
     if (invalid.length > 5) msg += `\n...и ещё ${invalid.length - 5}`;
   }
   await msgCtx.reply(msg, { reply_markup: mainMenuKeyboard() });

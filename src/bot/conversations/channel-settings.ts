@@ -1,21 +1,16 @@
 import type { BotConversation, BotContext } from "../context";
 import { Account } from "../../models/index";
 import { mainMenuKeyboard, channelSettingsKeyboard } from "../../utils/keyboard";
+import { e } from "../../utils/emoji";
 
 /**
  * Conversation: Set channel avatar.
  * User sends an image, bot stores the file_id.
- *
- * The accountId is passed via the conversation args mechanism:
- * ctx.conversation.enter("channelAvatarConv", { args: accountId })
- * It's accessible from the initial ctx that triggered the conversation.
  */
 export async function channelAvatarConv(
   conversation: BotConversation,
   ctx: BotContext,
 ): Promise<void> {
-  // accountId was passed via conversation.enter({ args: accountId })
-  // We read it from the initial context callback data
   const callbackData = ctx.callbackQuery?.data as string | undefined;
   const accountId = callbackData?.split(":")[2] || "";
 
@@ -24,24 +19,27 @@ export async function channelAvatarConv(
   if (!userId) return;
 
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
-    await msgCtx.reply("❌ Отменено.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
-  // Accept photo
   const photo = msgCtx.message?.photo;
   if (!photo) {
-    await msgCtx.reply("❌ Отправь картинку для аватарки.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отправь картинку для аватарки.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
-  const fileId = photo[photo.length - 1].file_id; // highest resolution
+  const fileId = photo[photo.length - 1].file_id;
 
   if (accountId) {
     await Account.findByIdAndUpdate(accountId, { channelAvatarFileId: fileId });
-    await msgCtx.reply("✅ Аватарка сохранена!", { reply_markup: channelSettingsKeyboard(accountId) });
+    await msgCtx.reply(
+      `${e("check")} Аватарка сохранена!\n\n` +
+      `<blockquote>${e("image")} Будет установлена при следующей загрузке через браузерную автоматизацию.</blockquote>`,
+      { reply_markup: channelSettingsKeyboard(accountId) },
+    );
   } else {
-    await msgCtx.reply("❌ Аккаунт не выбран.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Аккаунт не выбран.`, { reply_markup: mainMenuKeyboard() });
   }
 }
 
@@ -60,21 +58,25 @@ export async function channelDescriptionConv(
   if (!userId) return;
 
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
-    await msgCtx.reply("❌ Отменено.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   const text = msgCtx.message?.text;
   if (!text) {
-    await msgCtx.reply("❌ Отправь текст для описания.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отправь текст для описания.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   if (accountId) {
     await Account.findByIdAndUpdate(accountId, { channelDescription: text });
-    await msgCtx.reply("✅ Описание сохранено!", { reply_markup: channelSettingsKeyboard(accountId) });
+    await msgCtx.reply(
+      `${e("check")} Описание сохранено!\n\n` +
+      `<blockquote>${e("pencil")} Будет применено при настройке канала на YouTube.</blockquote>`,
+      { reply_markup: channelSettingsKeyboard(accountId) },
+    );
   } else {
-    await msgCtx.reply("❌ Аккаунт не выбран.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Аккаунт не выбран.`, { reply_markup: mainMenuKeyboard() });
   }
 }
 
@@ -93,13 +95,13 @@ export async function channelTagsConv(
   if (!userId) return;
 
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
-    await msgCtx.reply("❌ Отменено.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
   const text = msgCtx.message?.text;
   if (!text) {
-    await msgCtx.reply("❌ Отправь теги через запятую.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отправь теги через запятую.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
@@ -107,8 +109,12 @@ export async function channelTagsConv(
 
   if (accountId) {
     await Account.findByIdAndUpdate(accountId, { channelTags: tags });
-    await msgCtx.reply(`✅ Теги сохранены: ${tags.join(", ")}`, { reply_markup: channelSettingsKeyboard(accountId) });
+    await msgCtx.reply(
+      `${e("check")} Теги сохранены: ${tags.join(", ")}\n\n` +
+      `<blockquote>${e("label")} Будут применены в настройках канала на YouTube.</blockquote>`,
+      { reply_markup: channelSettingsKeyboard(accountId) },
+    );
   } else {
-    await msgCtx.reply("❌ Аккаунт не выбран.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Аккаунт не выбран.`, { reply_markup: mainMenuKeyboard() });
   }
 }

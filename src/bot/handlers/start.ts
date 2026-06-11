@@ -2,6 +2,7 @@ import { type Composer } from "grammy";
 import type { BotContext } from "../context";
 import { User } from "../../models/index";
 import { mainMenuKeyboard } from "../../utils/keyboard";
+import { e } from "../../utils/emoji";
 
 export function registerStartHandler(bot: Composer<BotContext>) {
   bot.command("start", async (ctx) => {
@@ -28,9 +29,12 @@ export function registerStartHandler(bot: Composer<BotContext>) {
     }
 
     await ctx.reply(
-      `<b>🎬 UniqVid Bot</b>\n\n` +
+      `${e("video")} <b>UniqVid Bot</b>\n\n` +
       `Привет, ${from.first_name}!\n` +
       `Я помогу тебе загружать уникальные Shorts на YouTube.\n\n` +
+      `<blockquote>${e("sparkles")} Уникализация видео через FFmpeg ${e("sparkles")}\n` +
+      `${e("globe")} Прокси для каждого аккаунта\n` +
+      `${e("control")} Настройка каналов</blockquote>\n\n` +
       `Выбери действие:`,
       { reply_markup: mainMenuKeyboard() },
     );

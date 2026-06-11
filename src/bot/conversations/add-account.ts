@@ -2,6 +2,7 @@ import type { BotConversation, BotContext } from "../context";
 import { Account } from "../../models/index";
 import { parseAccountBatch } from "../../utils/account-parser";
 import { mainMenuKeyboard } from "../../utils/keyboard";
+import { e } from "../../utils/emoji";
 
 /**
  * Conversation: Add one or more accounts.
@@ -11,15 +12,13 @@ export async function addAccountConv(
   conversation: BotConversation,
   ctx: BotContext,
 ): Promise<void> {
-  // Wait for user message (text or document)
   const msgCtx = await conversation.wait();
 
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
-  // Check for cancel
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
-    await msgCtx.reply("❌ Отменено.", { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
     return;
   }
 
@@ -31,7 +30,7 @@ export async function addAccountConv(
     const doc = msgCtx.message.document;
     if (!doc.file_name?.endsWith(".txt")) {
       await msgCtx.reply(
-        "❌ Пожалуйста, отправь файл в формате .txt или напиши данные текстом.",
+        `${e("cross")} Пожалуйста, отправь файл в формате .txt или напиши данные текстом.`,
         { reply_markup: mainMenuKeyboard() },
       );
       return;
@@ -40,7 +39,7 @@ export async function addAccountConv(
     const file = await msgCtx.getFile();
     const filePath = file.file_path;
     if (!filePath) {
-      await msgCtx.reply("❌ Не удалось получить файл.", { reply_markup: mainMenuKeyboard() });
+      await msgCtx.reply(`${e("cross")} Не удалось получить файл.`, { reply_markup: mainMenuKeyboard() });
       return;
     }
     const fileUrl = `https://api.telegram.org/file/bot${ctx.api.token}/${filePath}`;
@@ -74,16 +73,16 @@ export async function addAccountConv(
     validCount = valid.length;
   } else {
     await msgCtx.reply(
-      "❌ Не понял. Отправь данные аккаунта текстом или файл .txt.",
+      `${e("cross")} Не понял. Отправь данные аккаунта текстом или файл .txt.`,
       { reply_markup: mainMenuKeyboard() },
     );
     return;
   }
 
   // ── Result ──
-  let msg = `<b>➕ Аккаунты добавлены</b>\n\n✅ Добавлено: ${validCount}`;
+  let msg = `${e("plus")} <b>Аккаунты добавлены</b>\n\n${e("check")} Добавлено: ${validCount}`;
   if (invalidLines.length > 0) {
-    msg += `\n\n❌ Ошибки в строках:\n<code>${invalidLines.slice(0, 5).join("\n")}</code>`;
+    msg += `\n\n${e("cross")} Ошибки в строках:\n<code>${invalidLines.slice(0, 5).join("\n")}</code>`;
     if (invalidLines.length > 5) msg += `\n...и ещё ${invalidLines.length - 5}`;
   }
   await msgCtx.reply(msg, { reply_markup: mainMenuKeyboard() });
