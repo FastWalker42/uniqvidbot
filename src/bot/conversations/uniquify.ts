@@ -3,16 +3,33 @@ import { VideoTask, User } from "../../models/index";
 import { ensureDownloadDir, uniqueFilename, safeDelete } from "../../utils/file-utils";
 import { e, iconId } from "../../utils/emoji";
 import { handleNavCallback } from "../helpers/show-views";
+import { processAndSendResults } from "../helpers/process-results";
+import { type UniqOptions } from "../../services/video-processor";
+import { InlineKeyboard } from "grammy";
 import { join } from "node:path";
 
+/** Uniquification toggle flags */
+interface UniqFlags {
+  emoji: boolean;
+  blur: boolean;
+  colorCorrection: boolean;
+  glitch: boolean;
+  noise: boolean;
+  mirror: boolean;
+}
+
 /**
- * Conversation: Uniquify a video — Step 1: collect video + count.
+ * Conversation: Uniquify a video — full flow.
  *
- * Flow:
  * 1. User sends a video file → download
  * 2. User sends copy count
- * 3. Bot creates VideoTask (pending), shows toggle keyboard, EXITS conversation
- * 4. Toggle / start / back are handled by explicit callback handlers (not conversation)
+ * 3. Bot creates VideoTask (pending), shows toggle keyboard
+ * 4. Loop: toggle / start / cancel / back handled INSIDE conversation
+ * 5. On "start" → fire-and-forget background processing, exit conversation
+ *
+ * ALL callbacks are handled via conversation.wait() to avoid the
+ * @grammyjs/conversations middleware intercepting callbacks that should
+ * go to explicit handlers.
  */
 export async function uniquifyConv(
   conversation: BotConversation,
@@ -37,18 +54,14 @@ export async function uniquifyConv(
 
   const video = videoCtx.message?.video || videoCtx.message?.document;
   if (!video) {
-    await videoCtx.reply(
-      `${e("cross")} Отправь видеофайл (MP4).`,
-    );
+    await videoCtx.reply(`${e("cross")} Отправь видеофайл (MP4).`);
     return;
   }
 
   const isVideo = !!videoCtx.message?.video ||
     (videoCtx.message?.document?.mime_type?.startsWith("video/") ?? false);
   if (!isVideo) {
-    await videoCtx.reply(
-      `${e("cross")} Это не видеофайл. Отправь MP4.`,
-    );
+    await videoCtx.reply(`${e("cross")} Это не видеофайл. Отправь MP4.`);
     return;
   }
 
@@ -79,9 +92,7 @@ export async function uniquifyConv(
   await ctx.api.editMessageText(userId, statusMsg.message_id, `${e("check")} Видео скачано.`);
 
   // ── Step 2: Ask how many copies ──
-  await videoCtx.reply(
-    `${e("control")} Сколько копий этого видео создать? (1–20)`,
-  );
+  await videoCtx.reply(`${e("control")} Сколько копий этого видео создать? (1–20)`);
   const countCtx = await conversation.wait();
 
   // Handle navigation callbacks in copy count step
@@ -105,46 +116,11 @@ export async function uniquifyConv(
     return;
   }
 
-  // ── Step 3: Create pending task, show toggle keyboard, exit conversation ──
+  // ── Step 3: Create pending task, show toggle keyboard ──
   const user = await User.findOne({ telegramId: userId });
   const savedSettings = user?.uniqSettings;
 
-  const task = await VideoTask.create({
-    userId,
-    originalPath: localPath,
-    title: caption || "Уникализация",
-    uniqOptions: {
-      emoji: savedSettings?.emoji ?? true,
-      blur: savedSettings?.blur ?? true,
-      colorCorrection: savedSettings?.colorCorrection ?? true,
-      glitch: savedSettings?.glitch ?? true,
-      noise: savedSettings?.noise ?? true,
-      mirror: savedSettings?.mirror ?? false,
-      metadataStrip: true,
-    },
-    status: "pending",
-    tgFileId,
-  });
-
-  // Show toggle keyboard — callbacks will be handled by explicit handlers (not conversation)
-  await showToggleKeyboard(countCtx, task._id.toString(), count);
-
-  // Exit conversation — toggle/start/back handled by explicit callback handlers
-}
-
-/**
- * Show the toggle settings keyboard for a pending task.
- * Exported so explicit callback handlers can reuse it.
- */
-export async function showToggleKeyboard(
-  ctx: BotContext,
-  taskId: string,
-  count: number,
-): Promise<void> {
-  const userId = ctx.from!.id;
-  const user = await User.findOne({ telegramId: userId });
-  const savedSettings = user?.uniqSettings;
-  const flags = {
+  const flags: UniqFlags = {
     emoji: savedSettings?.emoji ?? true,
     blur: savedSettings?.blur ?? true,
     colorCorrection: savedSettings?.colorCorrection ?? true,
@@ -153,6 +129,169 @@ export async function showToggleKeyboard(
     mirror: savedSettings?.mirror ?? false,
   };
 
+  const task = await VideoTask.create({
+    userId,
+    originalPath: localPath,
+    title: caption || "Уникализация",
+    uniqOptions: {
+      emoji: flags.emoji,
+      blur: flags.blur,
+      colorCorrection: flags.colorCorrection,
+      glitch: flags.glitch,
+      noise: flags.noise,
+      mirror: flags.mirror,
+      metadataStrip: true,
+    },
+    status: "pending",
+    tgFileId,
+  });
+
+  const taskId = task._id.toString();
+
+  // Show toggle keyboard
+  await showToggleKeyboard(countCtx, flags, count);
+
+  // ── Step 4: Loop — handle toggle / start / cancel / back ──
+  let startProcessing = false;
+
+  while (!startProcessing) {
+    const toggleCtx = await conversation.wait();
+    const callbackData = toggleCtx.callbackQuery?.data;
+
+    // Not a callback — ignore text messages, etc.
+    if (!callbackData) {
+      // If user types /start or /cancel, exit
+      if (toggleCtx.message?.text === "/start" || toggleCtx.message?.text === "/cancel") {
+        await safeDelete(localPath);
+        await task.deleteOne();
+        await toggleCtx.reply(`${e("cross")} Отменено.`);
+        return;
+      }
+      continue;
+    }
+
+    // Handle navigation (Назад, etc.)
+    if (callbackData.startsWith("menu:")) {
+      await toggleCtx.answerCallbackQuery();
+      await safeDelete(localPath);
+      await task.deleteOne();
+      await handleNavCallback(toggleCtx);
+      return;
+    }
+
+    // Handle toggle: uniq:toggle:<flag>
+    if (callbackData.startsWith("uniq:toggle:")) {
+      const flag = callbackData.split(":")[2];
+      await toggleCtx.answerCallbackQuery();
+
+      // Map callback flag name to UniqFlags key
+      const flagMap: Record<string, keyof UniqFlags> = {
+        emoji: "emoji",
+        blur: "blur",
+        color: "colorCorrection",
+        glitch: "glitch",
+        noise: "noise",
+        mirror: "mirror",
+      };
+
+      const flagKey = flagMap[flag];
+      if (flagKey) {
+        // Toggle in local state
+        flags[flagKey] = !flags[flagKey];
+
+        // Persist to user settings
+        const u = await User.findOne({ telegramId: userId });
+        if (u) {
+          (u.uniqSettings as any)[flagKey] = flags[flagKey];
+          await u.save();
+        }
+      }
+
+      // Re-show keyboard with updated flags
+      await showToggleKeyboard(toggleCtx, flags, count);
+      continue;
+    }
+
+    // Handle start: uniq:start
+    if (callbackData === "uniq:start") {
+      startProcessing = true;
+      await toggleCtx.answerCallbackQuery();
+
+      // Build options from current flags
+      const options: UniqOptions = {
+        emoji: flags.emoji,
+        blur: flags.blur,
+        colorCorrection: flags.colorCorrection,
+        glitch: flags.glitch,
+        noise: flags.noise,
+        mirror: flags.mirror,
+        metadataStrip: true,
+      };
+
+      // Update task with final options and set processing
+      task.uniqOptions = options as any;
+      task.status = "processing";
+      await task.save();
+
+      // Build label
+      const labelParts: string[] = [];
+      if (options.emoji) labelParts.push("Смайлики");
+      if (options.blur) labelParts.push("Размытие краёв");
+      if (options.colorCorrection) labelParts.push("Цветокоррекция");
+      if (options.glitch) labelParts.push("Глитч");
+      if (options.noise) labelParts.push("Шум");
+      if (options.mirror) labelParts.push("Отзеркалить");
+      const modeLabel = labelParts.length > 0 ? labelParts.join(", ") : "Нет эффектов";
+
+      await toggleCtx.editMessageText(
+        `${e("clock")} Обработка 0/${count} копий...\n\n` +
+        `<blockquote>${e("art")} Эффекты: ${modeLabel}</blockquote>`,
+      );
+
+      const processingMsgId = toggleCtx.callbackQuery?.message?.message_id!;
+
+      // Fire-and-forget background processing
+      processAndSendResults(
+        toggleCtx.api,
+        userId,
+        task.originalPath,
+        count,
+        options,
+        processingMsgId,
+        task,
+        modeLabel,
+      ).catch((err) => {
+        console.error("Background processing error:", err);
+      });
+
+      // Exit conversation — background processing will continue
+      return;
+    }
+
+    // Handle cancel: uniq:cancel
+    if (callbackData === "uniq:cancel") {
+      await toggleCtx.answerCallbackQuery();
+      await safeDelete(localPath);
+      await task.deleteOne();
+      await toggleCtx.editMessageText(`${e("cross")} Отменено.`);
+      return;
+    }
+
+    // Unknown callback — just answer it
+    await toggleCtx.answerCallbackQuery();
+  }
+}
+
+/**
+ * Show the toggle settings keyboard.
+ * Uses simple callback data (uniq:toggle:emoji, uniq:start, uniq:cancel)
+ * because the conversation has taskId and count in scope.
+ */
+async function showToggleKeyboard(
+  ctx: BotContext,
+  flags: UniqFlags,
+  count: number,
+): Promise<void> {
   const parts: string[] = [];
   if (flags.emoji) parts.push("Смайлики");
   if (flags.blur) parts.push("Размытие краёв");
@@ -168,41 +307,40 @@ export async function showToggleKeyboard(
     `Гарантируется минимум 2 ненулевых эффекта на копию. Смайлик — всегда если включён.\n\n` +
     `<blockquote>${e("sparkles")} Текущие: ${currentLabel}</blockquote>`;
 
-  const { InlineKeyboard } = await import("grammy");
   const kb = new InlineKeyboard();
 
   kb.text(
     flags.emoji ? "Смайлики: ВКЛ" : "Смайлики: ВЫКЛ",
-    `uniq:toggle:emoji:${taskId}:${count}`,
+    "uniq:toggle:emoji",
   ).icon(flags.emoji ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.blur ? "Размытие краёв: ВКЛ" : "Размытие краёв: ВЫКЛ",
-    `uniq:toggle:blur:${taskId}:${count}`,
+    "uniq:toggle:blur",
   ).icon(flags.blur ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.colorCorrection ? "Цветокоррекция: ВКЛ" : "Цветокоррекция: ВЫКЛ",
-    `uniq:toggle:color:${taskId}:${count}`,
+    "uniq:toggle:color",
   ).icon(flags.colorCorrection ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.glitch ? "Глитч: ВКЛ" : "Глитч: ВЫКЛ",
-    `uniq:toggle:glitch:${taskId}:${count}`,
+    "uniq:toggle:glitch",
   ).icon(flags.glitch ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.noise ? "Шум: ВКЛ" : "Шум: ВЫКЛ",
-    `uniq:toggle:noise:${taskId}:${count}`,
+    "uniq:toggle:noise",
   ).icon(flags.noise ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.mirror ? "Отзеркалить: ВКЛ" : "Отзеркалить: ВЫКЛ",
-    `uniq:toggle:mirror:${taskId}:${count}`,
+    "uniq:toggle:mirror",
   ).icon(flags.mirror ? iconId("toggleOn") : iconId("toggleOff")).row();
 
-  kb.text("Начать обработку", `uniq:start:${taskId}:${count}`).icon(iconId("check")).row();
-  kb.text("Отмена", `uniq:cancel:${taskId}`).icon(iconId("cross"));
+  kb.text("Начать обработку", "uniq:start").icon(iconId("check")).row();
+  kb.text("Отмена", "uniq:cancel").icon(iconId("cross"));
 
   try {
     if (ctx.callbackQuery) {
