@@ -2,6 +2,7 @@ import type { BotConversation, BotContext } from "../context";
 import { Account } from "../../models/index";
 import { mainMenuKeyboard, channelSettingsKeyboard } from "../../utils/keyboard";
 import { e } from "../../utils/emoji";
+import { handleNavCallback } from "../helpers/show-views";
 
 /**
  * Conversation: Set channel avatar.
@@ -18,9 +19,9 @@ export async function channelAvatarConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
-  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  // Handle navigation callbacks (e.g. "Назад") — navigate immediately
   if (msgCtx.callbackQuery) {
-    await msgCtx.answerCallbackQuery();
+    await handleNavCallback(msgCtx);
     return;
   }
 
@@ -63,9 +64,9 @@ export async function channelDescriptionConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
-  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  // Handle navigation callbacks (e.g. "Назад") — navigate immediately
   if (msgCtx.callbackQuery) {
-    await msgCtx.answerCallbackQuery();
+    await handleNavCallback(msgCtx);
     return;
   }
 
@@ -106,9 +107,9 @@ export async function channelTagsConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
-  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  // Handle navigation callbacks (e.g. "Назад") — navigate immediately
   if (msgCtx.callbackQuery) {
-    await msgCtx.answerCallbackQuery();
+    await handleNavCallback(msgCtx);
     return;
   }
 

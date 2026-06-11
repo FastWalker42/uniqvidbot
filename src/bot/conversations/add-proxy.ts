@@ -3,6 +3,7 @@ import { Proxy } from "../../models/index";
 import { parseProxyBatch } from "../../utils/proxy-parser";
 import { proxyListKeyboard } from "../../utils/keyboard";
 import { e } from "../../utils/emoji";
+import { handleNavCallback } from "../helpers/show-views";
 
 /**
  * Conversation: Add one or more proxies.
@@ -17,9 +18,9 @@ export async function addProxyConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
-  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  // Handle navigation callbacks (e.g. "Назад") — navigate immediately
   if (msgCtx.callbackQuery) {
-    await msgCtx.answerCallbackQuery();
+    await handleNavCallback(msgCtx);
     return;
   }
 

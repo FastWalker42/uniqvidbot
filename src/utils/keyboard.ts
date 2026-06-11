@@ -24,12 +24,12 @@ export function yesNoKeyboard(yesAction: string, noAction: string): InlineKeyboa
     .text("Нет", noAction).icon(iconId("cross"));
 }
 
-/** Uniquification mode selector */
+/** Uniquification mode selector — each button on its own row */
 export function uniqModeKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Да, размытие + смайлики", "uniq:mode_full").icon(iconId("check"))
-    .text("Только эффекты", "uniq:mode_effects").icon(iconId("art"))
-    .text("Только структура", "uniq:mode_structure").icon(iconId("wrench"))
+    .text("Да, размытие + смайлики", "uniq:mode_full").icon(iconId("check")).row()
+    .text("Только эффекты", "uniq:mode_effects").icon(iconId("art")).row()
+    .text("Только структура", "uniq:mode_structure").icon(iconId("wrench")).row()
     .text("Нет, оригинал", "uniq:mode_none").icon(iconId("cross")).row()
     .text("Назад", "menu:back").icon(iconId("back"));
 }

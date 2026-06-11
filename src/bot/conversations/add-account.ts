@@ -3,6 +3,7 @@ import { Account } from "../../models/index";
 import { parseAccountBatch } from "../../utils/account-parser";
 import { accountListKeyboard } from "../../utils/keyboard";
 import { e } from "../../utils/emoji";
+import { handleNavCallback } from "../helpers/show-views";
 import { InlineKeyboard } from "grammy";
 import { iconId } from "../../utils/emoji";
 
@@ -24,9 +25,9 @@ export async function addAccountConv(
   const userId = msgCtx.from?.id;
   if (!userId) return;
 
-  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  // Handle navigation callbacks (e.g. "Назад") — navigate immediately
   if (msgCtx.callbackQuery) {
-    await msgCtx.answerCallbackQuery();
+    await handleNavCallback(msgCtx);
     return;
   }
 

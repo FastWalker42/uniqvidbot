@@ -4,6 +4,7 @@ import { uniquifyVideoBatch, type UniqOptions } from "../../services/video-proce
 import { ensureDownloadDir, uniqueFilename, safeDelete } from "../../utils/file-utils";
 import { mainMenuKeyboard, uniqModeKeyboard } from "../../utils/keyboard";
 import { e } from "../../utils/emoji";
+import { handleNavCallback } from "../helpers/show-views";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { InputFile } from "grammy";
@@ -27,10 +28,9 @@ export async function uniquifyConv(
   const userId = videoCtx.from?.id;
   if (!userId) return;
 
-  // Handle callback queries (e.g. "Назад" button) — exit conversation gracefully
+  // Handle navigation callbacks (e.g. "Назад") — navigate immediately
   if (videoCtx.callbackQuery) {
-    await videoCtx.answerCallbackQuery();
-    // Let the callback handler process navigation — just exit the conversation
+    await handleNavCallback(videoCtx);
     return;
   }
 
@@ -90,6 +90,13 @@ export async function uniquifyConv(
   );
   const countCtx = await conversation.wait();
 
+  // Handle navigation callbacks in copy count step
+  if (countCtx.callbackQuery) {
+    await safeDelete(localPath);
+    await handleNavCallback(countCtx);
+    return;
+  }
+
   const countText = countCtx.message?.text?.trim();
   if (!countText) {
     await safeDelete(localPath);
@@ -115,6 +122,13 @@ export async function uniquifyConv(
   if (!callbackData) {
     await safeDelete(localPath);
     await modeCtx.reply(`${e("cross")} Выбери режим.`, { reply_markup: mainMenuKeyboard() });
+    return;
+  }
+
+  // Handle navigation callbacks in mode selection step
+  if (callbackData.startsWith("menu:")) {
+    await safeDelete(localPath);
+    await handleNavCallback(modeCtx);
     return;
   }
 
