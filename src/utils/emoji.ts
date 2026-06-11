@@ -18,12 +18,12 @@ const EMOJI_MAP = {
 
         // ── Main menu actions ──
         plus:       { id: '6032924188828767321', fallback: '➕' },
-        globe:      { id: '5776233299424843260', fallback: '🌐' },
+        globe:      { id: '4983606271883086011', fallback: '🔗' },
         settings:   { id: '5904258298764334001', fallback: '⚙️' },
-        video:      { id: '5886579539064132088', fallback: '🎥' },
-        stats:      { id: '5936143551854285132', fallback: '📊' },
+        video:      { id: '5253459775760388144', fallback: '🚀' },
+        stats:      { id: '4985851813929420053', fallback: '💻' },
         art:        { id: '5276442772826515132', fallback: '🎨' },
-        person:     { id: '6032994772321309200', fallback: '👤' },
+        person:     { id: '4983363889698702988', fallback: '👤' },
 
         // ── Status / results ──
         check:      { id: '5774022692642492953', fallback: '✅' },
