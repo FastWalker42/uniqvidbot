@@ -3,9 +3,9 @@ import type { BotContext } from "../context";
 import { Account, Proxy, VideoTask } from "../../models/index";
 import {
   mainMenuKeyboard, backKeyboard, accountListKeyboard,
-  channelSettingsKeyboard, taskStatusKeyboard,
+  channelSettingsKeyboard, taskStatusKeyboard, proxyListKeyboard,
 } from "../../utils/keyboard";
-import { e, pe } from "../../utils/emoji";
+import { e, pe, iconId } from "../../utils/emoji";
 
 /**
  * Register all inline menu callback handlers.
@@ -21,7 +21,13 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
     );
   });
 
-  // ── Add Account ──
+  // ── My Accounts (list + add button) ──
+  bot.callbackQuery("menu:my_accounts", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await showAccountList(ctx);
+  });
+
+  // ── Add Account (from inside account list) ──
   bot.callbackQuery("menu:add_account", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
@@ -31,12 +37,18 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
       `Или отправь текстовый файл (.txt) с аккаунтами (один на строку).\n\n` +
       `<blockquote>${e("key")} Данные хранятся только для тебя. Другие пользователи их не видят.</blockquote>\n\n` +
       `Для этого просто напиши сообщение в чат.`,
-      { reply_markup: backKeyboard() },
+      { reply_markup: new InlineKeyboard().text("Назад", "menu:my_accounts").icon(iconId("back")) },
     );
     await ctx.conversation.enter("addAccountConv");
   });
 
-  // ── Add Proxy ──
+  // ── My Proxies (list + add button) ──
+  bot.callbackQuery("menu:my_proxies", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await showProxyList(ctx);
+  });
+
+  // ── Add Proxy (from inside proxy list) ──
   bot.callbackQuery("menu:add_proxy", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText(
@@ -48,7 +60,7 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
       `Можно отправить несколько — по одному на строку.\n\n` +
       `<blockquote>${e("lock")} Прокси автоматически привязывается к загружаемому аккаунту.</blockquote>\n\n` +
       `Напиши сообщение в чат.`,
-      { reply_markup: backKeyboard() },
+      { reply_markup: new InlineKeyboard().text("Назад", "menu:my_proxies").icon(iconId("back")) },
     );
     await ctx.conversation.enter("addProxyConv");
   });
@@ -62,7 +74,7 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
     if (accounts.length === 0) {
       await ctx.editMessageText(
         `${e("settings")} <b>Настройка канала</b>\n\n` +
-        `У тебя пока нет аккаунтов. Сначала добавь аккаунт через «${pe("plus")} Добавить аккаунт».`,
+        `У тебя пока нет аккаунтов. Сначала добавь аккаунт в разделе «Мои аккаунты».`,
         { reply_markup: backKeyboard() },
       );
       return;
@@ -172,58 +184,6 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
     await showTaskStatus(ctx);
   });
 
-  // ── My Accounts ──
-  bot.callbackQuery("menu:my_accounts", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const userId = ctx.from!.id;
-    const accounts = await Account.find({ userId, active: true }).lean();
-
-    if (accounts.length === 0) {
-      await ctx.editMessageText(
-        `${e("person")} <b>Мои аккаунты</b>\n\nУ тебя пока нет аккаунтов.`,
-        { reply_markup: backKeyboard() },
-      );
-      return;
-    }
-
-    const lines = accounts.map((a) => {
-      const proxy = a.proxyId ? e("globe") : e("cross");
-      return `${proxy} <b>${a.login}</b>${a.backupEmail ? ` (${a.backupEmail})` : ""}`;
-    });
-
-    await ctx.editMessageText(
-      `${e("person")} <b>Мои аккаунты</b>\n\n${lines.join("\n")}\n\n` +
-      `<blockquote>${e("globe")} = прокси привязан, ${e("cross")} = без прокси</blockquote>`,
-      { reply_markup: backKeyboard() },
-    );
-  });
-
-  // ── My Proxies ──
-  bot.callbackQuery("menu:my_proxies", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const userId = ctx.from!.id;
-    const proxies = await Proxy.find({ userId, active: true }).lean();
-
-    if (proxies.length === 0) {
-      await ctx.editMessageText(
-        `${e("globe")} <b>Мои прокси</b>\n\nУ тебя пока нет прокси.`,
-        { reply_markup: backKeyboard() },
-      );
-      return;
-    }
-
-    const lines = proxies.map((p) => {
-      const status = p.verified ? e("check") : e("warning");
-      return `${status} <code>${p.host}:${p.port}</code>${p.username ? ` (${p.username})` : ""}`;
-    });
-
-    await ctx.editMessageText(
-      `${e("globe")} <b>Мои прокси</b>\n\n${lines.join("\n")}\n\n` +
-      `<blockquote>${e("check")} = проверен, ${e("warning")} = не проверен</blockquote>`,
-      { reply_markup: backKeyboard() },
-    );
-  });
-
   // ── Proxy selected ──
   bot.callbackQuery(/^proxy:select:/, async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -239,9 +199,59 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
       `${e("person")} Пользователь: <code>${proxy.username || "—"}</code>\n` +
       `${e("eye")} Статус: ${status}\n` +
       `${e("clipboard")} Добавлен: ${proxy.createdAt?.toLocaleString("ru")}`,
-      { reply_markup: backKeyboard() },
+      { reply_markup: new InlineKeyboard().text("Назад", "menu:my_proxies").icon(iconId("back")) },
     );
   });
+}
+
+/** Helper: show account list with add button */
+async function showAccountList(ctx: BotContext) {
+  const userId = ctx.from!.id;
+  const accounts = await Account.find({ userId, active: true }).lean();
+
+  if (accounts.length === 0) {
+    await ctx.editMessageText(
+      `${e("person")} <b>Мои аккаунты</b>\n\nСписок пуст. Добавь первый аккаунт!`,
+      { reply_markup: accountListKeyboard([]) },
+    );
+    return;
+  }
+
+  const lines = accounts.map((a) => {
+    const proxy = a.proxyId ? e("globe") : e("cross");
+    return `${proxy} <b>${a.login}</b>${a.backupEmail ? ` (${a.backupEmail})` : ""}`;
+  });
+
+  await ctx.editMessageText(
+    `${e("person")} <b>Мои аккаунты</b>\n\n${lines.join("\n")}\n\n` +
+    `<blockquote>${e("globe")} = прокси привязан, ${e("cross")} = без прокси</blockquote>`,
+    { reply_markup: accountListKeyboard(accounts.map((a) => ({ _id: String(a._id), login: a.login }))) },
+  );
+}
+
+/** Helper: show proxy list with add button */
+async function showProxyList(ctx: BotContext) {
+  const userId = ctx.from!.id;
+  const proxies = await Proxy.find({ userId, active: true }).lean();
+
+  if (proxies.length === 0) {
+    await ctx.editMessageText(
+      `${e("globe")} <b>Мои прокси</b>\n\nСписок пуст. Добавь первый прокси!`,
+      { reply_markup: proxyListKeyboard([]) },
+    );
+    return;
+  }
+
+  const lines = proxies.map((p) => {
+    const status = p.verified ? e("check") : e("warning");
+    return `${status} <code>${p.host}:${p.port}</code>${p.username ? ` (${p.username})` : ""}`;
+  });
+
+  await ctx.editMessageText(
+    `${e("globe")} <b>Мои прокси</b>\n\n${lines.join("\n")}\n\n` +
+    `<blockquote>${e("check")} = проверен, ${e("warning")} = не проверен</blockquote>`,
+    { reply_markup: proxyListKeyboard(proxies.map((p) => ({ _id: String(p._id), host: p.host, port: p.port }))) },
+  );
 }
 
 /** Helper: show task status for the current user */

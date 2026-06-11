@@ -4,8 +4,6 @@ import { iconId } from "./emoji";
 /** Main menu keyboard shown after /start */
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("Добавить аккаунт", "menu:add_account").icon(iconId("plus")).row()
-    .text("Добавить прокси", "menu:add_proxy").icon(iconId("globe")).row()
     .text("Настройка канала", "menu:channel_settings").icon(iconId("settings")).row()
     .text("Загрузить Shorts", "menu:upload_shorts").icon(iconId("video")).row()
     .text("Уникализация", "menu:uniquify").icon(iconId("art")).row()
@@ -36,22 +34,24 @@ export function uniqModeKeyboard(): InlineKeyboard {
     .text("Назад", "menu:back").icon(iconId("back"));
 }
 
-/** Account list keyboard */
+/** Account list keyboard with "Add" button at the bottom */
 export function accountListKeyboard(accounts: { _id: string; login: string }[]): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const acc of accounts) {
     kb.text(acc.login, `account:select:${acc._id}`).icon(iconId("person")).row();
   }
+  kb.text("Добавить аккаунт", "menu:add_account").icon(iconId("plus")).row();
   kb.text("Назад", "menu:back").icon(iconId("back"));
   return kb;
 }
 
-/** Proxy list keyboard */
+/** Proxy list keyboard with "Add" button at the bottom */
 export function proxyListKeyboard(proxies: { _id: string; host: string; port: number }[]): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const p of proxies) {
     kb.text(`${p.host}:${p.port}`, `proxy:select:${p._id}`).icon(iconId("globe")).row();
   }
+  kb.text("Добавить прокси", "menu:add_proxy").icon(iconId("plus")).row();
   kb.text("Назад", "menu:back").icon(iconId("back"));
   return kb;
 }

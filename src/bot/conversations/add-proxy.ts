@@ -1,7 +1,7 @@
 import type { BotConversation, BotContext } from "../context";
 import { Proxy } from "../../models/index";
 import { parseProxyBatch } from "../../utils/proxy-parser";
-import { mainMenuKeyboard } from "../../utils/keyboard";
+import { proxyListKeyboard } from "../../utils/keyboard";
 import { e } from "../../utils/emoji";
 
 /**
@@ -18,14 +18,13 @@ export async function addProxyConv(
   if (!userId) return;
 
   if (msgCtx.message?.text === "/cancel" || msgCtx.message?.text === "/start") {
-    await msgCtx.reply(`${e("cross")} Отменено.`, { reply_markup: mainMenuKeyboard() });
+    await msgCtx.reply(`${e("cross")} Отменено.`);
     return;
   }
 
   if (!msgCtx.message?.text) {
     await msgCtx.reply(
       `${e("cross")} Отправь прокси текстом.\nФормат: <code>IP:PORT:USER:PASS</code> или <code>USER:PASS@IP:PORT</code>`,
-      { reply_markup: mainMenuKeyboard() },
     );
     return;
   }
@@ -56,7 +55,9 @@ export async function addProxyConv(
     addedCount++;
   }
 
-  // ── Result ──
+  // ── Result — return to proxy list ──
+  const proxies = await Proxy.find({ userId, active: true }).lean();
+
   let msg = `${e("globe")} <b>Прокси добавлены</b>\n\n`;
   msg += `${e("check")} Новых: ${addedCount}`;
   if (duplicateCount > 0) msg += `\n${e("refresh")} Обновлено: ${duplicateCount}`;
@@ -64,5 +65,7 @@ export async function addProxyConv(
     msg += `\n\n${e("cross")} Ошибки в строках:\n<code>${invalid.slice(0, 5).join("\n")}</code>`;
     if (invalid.length > 5) msg += `\n...и ещё ${invalid.length - 5}`;
   }
-  await msgCtx.reply(msg, { reply_markup: mainMenuKeyboard() });
+  await msgCtx.reply(msg, {
+    reply_markup: proxyListKeyboard(proxies.map((p) => ({ _id: String(p._id), host: p.host, port: p.port }))),
+  });
 }
