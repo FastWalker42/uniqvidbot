@@ -2,12 +2,30 @@ import type { BotConversation, BotContext } from "../context";
 import { VideoTask } from "../../models/index";
 import { uniquifyVideoBatch, type UniqOptions } from "../../services/video-processor";
 import { ensureDownloadDir, uniqueFilename, safeDelete } from "../../utils/file-utils";
-import { mainMenuKeyboard, uniqModeKeyboard } from "../../utils/keyboard";
+import { mainMenuKeyboard, uniqToggleKeyboard, type UniqFlags } from "../../utils/keyboard";
 import { e } from "../../utils/emoji";
 import { handleNavCallback } from "../helpers/show-views";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { InputFile } from "grammy";
+
+/** Default flags — all enabled */
+const DEFAULT_FLAGS: UniqFlags = {
+  emoji: true,
+  blur: true,
+  colorCorrection: true,
+};
+
+/**
+ * Build a human-readable description of the enabled flags.
+ */
+function flagsDescription(flags: UniqFlags): string {
+  const parts: string[] = [];
+  if (flags.emoji) parts.push("Смайлики");
+  if (flags.blur) parts.push("Размытие краёв");
+  if (flags.colorCorrection) parts.push("Цветокоррекция");
+  return parts.length > 0 ? parts.join(", ") : "Нет эффектов";
+}
 
 /**
  * Conversation: Uniquify a video — send back uniquified copies as files.
@@ -15,8 +33,9 @@ import { InputFile } from "grammy";
  * Flow:
  * 1. User sends a video file
  * 2. Bot asks how many copies
- * 3. Bot asks uniquification mode
- * 4. Bot processes and sends files back
+ * 3. Bot shows toggle keyboard for effects (user can toggle on/off)
+ * 4. User presses "Начать обработку"
+ * 5. Bot processes and sends files back
  */
 export async function uniquifyConv(
   conversation: BotConversation,
@@ -111,58 +130,77 @@ export async function uniquifyConv(
     return;
   }
 
-  // ── Step 3: Ask uniquification mode ──
+  // ── Step 3: Toggle effects ──
+  const flags: UniqFlags = { ...DEFAULT_FLAGS };
+
   await countCtx.reply(
-    `${e("art")} Включить уникализацию?`,
-    { reply_markup: uniqModeKeyboard() },
+    `${e("art")} <b>Настройки уникализации</b>\n\n` +
+    `Выбери какие эффекты применить. Каждый эффект будет применён со случайной силой для каждой копии.\n\n` +
+    `<blockquote>${e("sparkles")} Текущие: ${flagsDescription(flags)}</blockquote>`,
+    { reply_markup: uniqToggleKeyboard(flags) },
   );
-  const modeCtx = await conversation.wait();
 
-  const callbackData = modeCtx.callbackQuery?.data;
-  if (!callbackData) {
-    await safeDelete(localPath);
-    await modeCtx.reply(`${e("cross")} Выбери режим.`, { reply_markup: mainMenuKeyboard() });
-    return;
-  }
+  // Toggle loop — user can toggle flags until pressing "Начать" or "Назад"
+  let startProcessing = false;
+  while (!startProcessing) {
+    const toggleCtx = await conversation.wait();
 
-  // Handle navigation callbacks in mode selection step
-  if (callbackData.startsWith("menu:")) {
-    await safeDelete(localPath);
-    await handleNavCallback(modeCtx);
-    return;
-  }
+    const callbackData = toggleCtx.callbackQuery?.data;
 
-  await modeCtx.answerCallbackQuery();
-
-  let options: UniqOptions;
-  let modeLabel: string;
-  switch (callbackData) {
-    case "uniq:mode_full":
-      options = { emoji: true, blur: true, colorCorrection: true, speedChange: true, metadataStrip: true, microTrim: true };
-      modeLabel = "Полная уникализация";
-      break;
-    case "uniq:mode_effects":
-      options = { emoji: true, blur: true, colorCorrection: true, metadataStrip: true };
-      modeLabel = "Только визуальные эффекты";
-      break;
-    case "uniq:mode_structure":
-      options = { speedChange: true, metadataStrip: true, microTrim: true };
-      modeLabel = "Только структурные изменения";
-      break;
-    case "uniq:mode_none":
-      options = { metadataStrip: true };
-      modeLabel = "Только очистка метаданных";
-      break;
-    default:
+    // Handle navigation (Назад)
+    if (!callbackData || callbackData === "menu:back") {
       await safeDelete(localPath);
-      await modeCtx.reply(`${e("cross")} Неизвестный режим.`, { reply_markup: mainMenuKeyboard() });
+      if (callbackData) await handleNavCallback(toggleCtx);
       return;
+    }
+
+    // Handle toggle switches
+    if (callbackData.startsWith("uniq:toggle:")) {
+      const flag = callbackData.split(":")[2];
+      if (flag === "emoji") flags.emoji = !flags.emoji;
+      else if (flag === "blur") flags.blur = !flags.blur;
+      else if (flag === "color") flags.colorCorrection = !flags.colorCorrection;
+
+      await toggleCtx.answerCallbackQuery();
+
+      await toggleCtx.editMessageText(
+        `${e("art")} <b>Настройки уникализации</b>\n\n` +
+        `Выбери какие эффекты применить. Каждый эффект будет применён со случайной силой для каждой копии.\n\n` +
+        `<blockquote>${e("sparkles")} Текущие: ${flagsDescription(flags)}</blockquote>`,
+        { reply_markup: uniqToggleKeyboard(flags) },
+      );
+      continue;
+    }
+
+    // Handle start
+    if (callbackData === "uniq:start") {
+      await toggleCtx.answerCallbackQuery();
+      startProcessing = true;
+      break;
+    }
+
+    // Unknown callback — treat as navigation
+    if (callbackData.startsWith("menu:")) {
+      await safeDelete(localPath);
+      await handleNavCallback(toggleCtx);
+      return;
+    }
   }
 
   // ── Step 4: Process and send ──
-  const processingMsg = await modeCtx.reply(
+  const options: UniqOptions = {
+    emoji: flags.emoji,
+    blur: flags.blur,
+    colorCorrection: flags.colorCorrection,
+    metadataStrip: true,
+  };
+
+  const modeLabel = flagsDescription(flags);
+
+  const processingMsg = await ctx.api.sendMessage(
+    userId!,
     `${e("refresh")} Обрабатываю ${count} копий...\n\n` +
-    `<blockquote>${e("art")} Режим: ${modeLabel}\n${e("zap")} Это может занять некоторое время</blockquote>`,
+    `<blockquote>${e("art")} Эффекты: ${modeLabel}\n${e("zap")} Это может занять некоторое время</blockquote>`,
   );
 
   const task = await VideoTask.create({
@@ -185,7 +223,8 @@ export async function uniquifyConv(
       const result = results[i];
       if (!existsSync(result.outputPath)) continue;
 
-      await modeCtx.replyWithDocument(
+      await ctx.api.sendDocument(
+        userId!,
         new InputFile(result.outputPath),
         {
           caption:
@@ -214,5 +253,5 @@ export async function uniquifyConv(
     await safeDelete(localPath);
   }
 
-  await modeCtx.reply("Выбери действие:", { reply_markup: mainMenuKeyboard() });
+  await ctx.api.sendMessage(userId!, "Выбери действие:", { reply_markup: mainMenuKeyboard() });
 }

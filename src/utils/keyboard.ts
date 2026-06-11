@@ -1,6 +1,13 @@
 import { InlineKeyboard } from "grammy";
 import { iconId } from "./emoji";
 
+/** Uniquification toggle flags */
+export interface UniqFlags {
+  emoji: boolean;
+  blur: boolean;
+  colorCorrection: boolean;
+}
+
 /** Main menu keyboard shown after /start */
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
@@ -24,14 +31,35 @@ export function yesNoKeyboard(yesAction: string, noAction: string): InlineKeyboa
     .text("Нет", noAction).icon(iconId("cross"));
 }
 
-/** Uniquification mode selector — each button on its own row */
-export function uniqModeKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("Да, размытие + смайлики", "uniq:mode_full").icon(iconId("check")).row()
-    .text("Только эффекты", "uniq:mode_effects").icon(iconId("art")).row()
-    .text("Только структура", "uniq:mode_structure").icon(iconId("wrench")).row()
-    .text("Нет, оригинал", "uniq:mode_none").icon(iconId("cross")).row()
-    .text("Назад", "menu:back").icon(iconId("back"));
+/** Uniquification toggle keyboard — each flag is a toggle button */
+export function uniqToggleKeyboard(flags: UniqFlags): InlineKeyboard {
+  const kb = new InlineKeyboard();
+
+  // Emoji toggle
+  kb.text(
+    flags.emoji ? "Смайлики: ВКЛ" : "Смайлики: ВЫКЛ",
+    "uniq:toggle:emoji",
+  ).icon(flags.emoji ? iconId("toggleOn") : iconId("toggleOff")).row();
+
+  // Blur edges toggle
+  kb.text(
+    flags.blur ? "Размытие краёв: ВКЛ" : "Размытие краёв: ВЫКЛ",
+    "uniq:toggle:blur",
+  ).icon(flags.blur ? iconId("toggleOn") : iconId("toggleOff")).row();
+
+  // Color correction toggle
+  kb.text(
+    flags.colorCorrection ? "Цветокоррекция: ВКЛ" : "Цветокоррекция: ВЫКЛ",
+    "uniq:toggle:color",
+  ).icon(flags.colorCorrection ? iconId("toggleOn") : iconId("toggleOff")).row();
+
+  // Start processing
+  kb.text("Начать обработку", "uniq:start").icon(iconId("check")).row();
+
+  // Back
+  kb.text("Назад", "menu:back").icon(iconId("back"));
+
+  return kb;
 }
 
 /** Account list keyboard with "Add" button at the bottom */

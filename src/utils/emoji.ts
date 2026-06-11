@@ -12,6 +12,10 @@ const EMOJI_MAP = {
         // ── Brand ──
         logo:       { id: '5334681713316479679', fallback: '📱' },
 
+        // ── Toggles ──
+        toggleOn:   { id: '5330533835765462529', fallback: '🟩' },
+        toggleOff:  { id: '5330203192003146212', fallback: '🔲' },
+
         // ── Navigation ──
         back:       { id: '5960671702059848143', fallback: '⬅️' },
         home:       { id: '6042137469204303531', fallback: '🏠' },

@@ -7,20 +7,14 @@ import { ensureDownloadDir, uniqueFilename, safeDelete } from "../utils/file-uti
 // ─── Types ────────────────────────────────────────────────────────
 
 export interface UniqOptions {
-  /** Overlay a random emoji/image on the video */
+  /** Overlay a random emoji on the video */
   emoji?: boolean;
-  /** Apply blur to edges/background */
+  /** Apply edge blur (vignette-like frame around the video) */
   blur?: boolean;
-  /** Subtle color correction (brightness, contrast, saturation) */
+  /** Subtle color correction (brightness ±1-3%, contrast, saturation) */
   colorCorrection?: boolean;
-  /** Micro speed change (±0.5–1.5%) */
-  speedChange?: boolean;
-  /** Strip all metadata */
+  /** Strip all metadata — always true */
   metadataStrip?: boolean;
-  /** Micro-trim 0.1–0.3s from start or end */
-  microTrim?: boolean;
-  /** Path to custom overlay image (png/webp) */
-  overlayImagePath?: string;
 }
 
 export interface UniqResult {
@@ -29,11 +23,6 @@ export interface UniqResult {
 }
 
 // ─── Built-in emoji list ──────────────────────────────────────────
-
-const BUILTIN_EMOJI_IMAGES: string[] = [
-  // These are just labels — actual overlay images must be in assets/
-  // We'll use Unicode text rendered via FFmpeg drawtext as fallback
-];
 
 const OVERLAY_EMOJIS = [
   "🔥", "⭐", "😍", "😂", "💯", "🎉", "❤️", "👍", "😎", "🤩",
@@ -45,11 +34,16 @@ const OVERLAY_EMOJIS = [
 if (config.ffmpegPath) ffmpeg.setFfmpegPath(config.ffmpegPath);
 if (config.ffprobePath) ffmpeg.setFfprobePath(config.ffprobePath);
 
-function getVideoDuration(inputPath: string): Promise<number> {
+function getVideoInfo(inputPath: string): Promise<{ duration: number; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(inputPath, (err, meta) => {
       if (err) return reject(err);
-      resolve(meta.format?.duration ?? 0);
+      const videoStream = meta.streams?.find((s) => s.codec_type === "video");
+      resolve({
+        duration: meta.format?.duration ?? 0,
+        width: videoStream?.width ?? 1080,
+        height: videoStream?.height ?? 1920,
+      });
     });
   });
 }
@@ -69,6 +63,12 @@ function pickRandom<T>(arr: T[]): T {
  * Apply uniquification effects to a video file.
  * Each call produces a visually different output even with the same options,
  * because random parameters are re-rolled each time.
+ *
+ * Effects applied:
+ * 1. Emoji overlay — random emoji at random corner/edge position, random size
+ * 2. Edge blur — soft blurred frame around the edges (NOT full-frame blur)
+ * 3. Color correction — random brightness ±1-3%, contrast, saturation
+ * 4. Metadata strip — always on
  */
 export async function uniquifyVideo(
   inputPath: string,
@@ -79,104 +79,100 @@ export async function uniquifyVideo(
   const outputPath = join(outDir, outName);
   const appliedEffects: string[] = [];
 
-  const duration = await getVideoDuration(inputPath);
+  const { duration, width, height } = await getVideoInfo(inputPath);
 
   return new Promise<UniqResult>((resolve, reject) => {
     let cmd = ffmpeg(inputPath);
 
     // ── Video filters (accumulate in -vf chain) ──
     const vFilters: string[] = [];
-    const aFilters: string[] = [];
 
-    // 1. Emoji overlay (using drawtext with Unicode emoji)
+    // 1. Emoji overlay — place in a corner/edge so it doesn't cover main content
     if (options.emoji) {
       const emoji = pickRandom(OVERLAY_EMOJIS);
-      const posX = randomInt(10, 85); // % from left
-      const posY = randomInt(10, 85); // % from top
-      const fontSize = randomInt(28, 56);
-      // drawtext with emoji — uses fontcolor and a fallback approach
-      vFilters.push(
-        `drawtext=text='${emoji}':x=${posX}*W/100:y=${posY}*H/100:fontsize=${fontSize}:fontcolor=white:enable='between(t,0,${duration})'`,
-      );
-      appliedEffects.push(`emoji:${emoji}`);
+      // Choose a corner/edge position (top-left, top-right, bottom-left, bottom-right)
+      const corner = randomInt(0, 4);
+      const margin = randomInt(2, 6); // % from edge
+      let posX: string, posY: string;
+      switch (corner) {
+        case 0: // top-left
+          posX = `${margin}*W/100`;
+          posY = `${margin}*H/100`;
+          break;
+        case 1: // top-right
+          posX = `(W-w-${margin}*W/100)`;
+          posY = `${margin}*H/100`;
+          break;
+        case 2: // bottom-left
+          posX = `${margin}*W/100`;
+          posY = `(H-h-${margin}*H/100)`;
+          break;
+        default: // bottom-right
+          posX = `(W-w-${margin}*W/100)`;
+          posY = `(H-h-${margin}*H/100)`;
+          break;
+      }
+      const fontSize = randomInt(24, 48);
+      // Emoji may appear for the whole video or a random time window
+      const showFull = Math.random() > 0.4;
+      if (showFull) {
+        vFilters.push(
+          `drawtext=text='${emoji}':x=${posX}:y=${posY}:fontsize=${fontSize}:fontcolor=white`,
+        );
+        appliedEffects.push(`emoji:${emoji}(full)`);
+      } else {
+        const startT = randomFloat(0, Math.max(duration * 0.3, 0.1), 1);
+        const endT = Math.min(duration, startT + randomFloat(1, 4, 1));
+        vFilters.push(
+          `drawtext=text='${emoji}':x=${posX}:y=${posY}:fontsize=${fontSize}:fontcolor=white:enable='between(t,${startT},${endT})'`,
+        );
+        appliedEffects.push(`emoji:${emoji}(${startT.toFixed(1)}-${endT.toFixed(1)}s)`);
+      }
     }
 
-    // Custom overlay image
-    if (options.overlayImagePath) {
-      const posX = randomInt(10, 80);
-      const posY = randomInt(10, 80);
-      // overlay requires two inputs
-      cmd = cmd.input(options.overlayImagePath);
-      vFilters.push(
-        `[0:v][1:v]overlay=${posX}*W/100:${posY}*H/100:enable='between(t,0,${duration})'[v]`,
-      );
-      appliedEffects.push("custom_overlay");
-    }
-
-    // 2. Blur edges
+    // 2. Edge blur — soft blurred frame around the edges
+    // Uses a split + overlay approach:
+    //   - Copy 1: original
+    //   - Copy 2: blurred version
+    //   - Overlay the original (slightly inset) on top of the blurred version
+    // This creates a natural edge-blur effect
     if (options.blur) {
-      const blurWidth = randomInt(15, 40);
-      const blurSigma = randomFloat(3, 8, 1);
-      // Boxblur on a border region using drawbox + overlay approach
-      // Simpler: apply slight boxblur to the whole video (barely noticeable)
-      vFilters.push(`boxblur=lr=${blurSigma}:lr=${blurSigma}:cr=${blurSigma}:cr=${blurSigma}`);
-      appliedEffects.push(`blur:sigma=${blurSigma}`);
+      const borderWidth = randomInt(20, 50); // px of blur on each edge
+      const blurStrength = randomFloat(8, 20, 1); // sigma for boxblur
+      vFilters.push(
+        `split[original][blurred]`,
+        `[blurred]boxblur=lr=${blurStrength}:lr=${blurStrength}:cr=${blurStrength}:cr=${blurStrength}[blurred2]`,
+        `[blurred2][original]overlay=${borderWidth}:${borderWidth}`,
+      );
+      appliedEffects.push(`edge_blur:${borderWidth}px:sigma=${blurStrength}`);
     }
 
-    // 3. Color correction
+    // 3. Color correction — subtle random changes
     if (options.colorCorrection) {
-      const brightness = randomFloat(-0.02, 0.02);
-      const contrast = randomFloat(0.98, 1.02);
-      const saturation = randomFloat(0.98, 1.02);
+      const brightness = randomFloat(-0.03, 0.03); // ±1-3%
+      const contrast = randomFloat(0.97, 1.03);
+      const saturation = randomFloat(0.97, 1.03);
       vFilters.push(
         `eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation}`,
       );
-      appliedEffects.push(`color:bri=${brightness}:con=${contrast}:sat=${saturation}`);
-    }
-
-    // 4. Speed change (±0.5–1.5%)
-    if (options.speedChange) {
-      const speedFactor = randomFloat(0.985, 1.015);
-      const ptsFactor = 1 / speedFactor;
-      vFilters.push(`setpts=${ptsFactor}*PTS`);
-      aFilters.push(`atempo=${speedFactor}`);
-      appliedEffects.push(`speed:${(speedFactor * 100).toFixed(2)}%`);
-    }
-
-    // 5. Micro-trim (0.1–0.3s from start or end)
-    if (options.microTrim && duration > 1) {
-      const trimAmount = randomFloat(0.1, 0.3, 2);
-      const trimFromStart = Math.random() > 0.5;
-      if (trimFromStart) {
-        cmd = cmd.seekInput(trimAmount);
-        appliedEffects.push(`trim_start:${trimAmount}s`);
-      } else {
-        const newDuration = duration - trimAmount;
-        cmd = cmd.duration(newDuration);
-        appliedEffects.push(`trim_end:${trimAmount}s`);
-      }
+      appliedEffects.push(`color:bri=${brightness.toFixed(3)}:con=${contrast.toFixed(3)}:sat=${saturation.toFixed(3)}`);
     }
 
     // Apply video filters
     if (vFilters.length > 0) {
-      if (options.overlayImagePath) {
-        // overlay filter already produces [v] label
-        cmd = cmd.complexFilter(vFilters, "v");
+      // Check if we need complexFilter (for split/overlay in blur)
+      if (options.blur) {
+        // Join all filters into one complex filter chain
+        const filterChain = vFilters.join(";");
+        cmd = cmd.complexFilter(filterChain);
       } else {
         cmd = cmd.videoFilters(vFilters);
       }
     }
 
-    // Apply audio filters
-    if (aFilters.length > 0) {
-      cmd = cmd.audioFilters(aFilters);
-    }
-
-    // 6. Metadata strip
-    if (options.metadataStrip !== false) {
-      cmd = cmd.outputOptions("-map_metadata", "-1");
-      appliedEffects.push("metadata_strip");
-    }
+    // 4. Metadata strip — always on
+    cmd = cmd.outputOptions("-map_metadata", "-1");
+    appliedEffects.push("metadata_strip");
 
     // General output options for compatibility
     cmd = cmd
