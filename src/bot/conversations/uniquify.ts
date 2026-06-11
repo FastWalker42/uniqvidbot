@@ -1,7 +1,7 @@
 import type { BotConversation, BotContext } from "../context";
 import { VideoTask, User } from "../../models/index";
 import { ensureDownloadDir, uniqueFilename, safeDelete } from "../../utils/file-utils";
-import { e } from "../../utils/emoji";
+import { e, iconId } from "../../utils/emoji";
 import { handleNavCallback } from "../helpers/show-views";
 import { join } from "node:path";
 
@@ -174,35 +174,35 @@ export async function showToggleKeyboard(
   kb.text(
     flags.emoji ? "Смайлики: ВКЛ" : "Смайлики: ВЫКЛ",
     `uniq:toggle:emoji:${taskId}:${count}`,
-  ).row();
+  ).icon(flags.emoji ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.blur ? "Размытие краёв: ВКЛ" : "Размытие краёв: ВЫКЛ",
     `uniq:toggle:blur:${taskId}:${count}`,
-  ).row();
+  ).icon(flags.blur ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.colorCorrection ? "Цветокоррекция: ВКЛ" : "Цветокоррекция: ВЫКЛ",
     `uniq:toggle:color:${taskId}:${count}`,
-  ).row();
+  ).icon(flags.colorCorrection ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.glitch ? "Глитч: ВКЛ" : "Глитч: ВЫКЛ",
     `uniq:toggle:glitch:${taskId}:${count}`,
-  ).row();
+  ).icon(flags.glitch ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.noise ? "Шум: ВКЛ" : "Шум: ВЫКЛ",
     `uniq:toggle:noise:${taskId}:${count}`,
-  ).row();
+  ).icon(flags.noise ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   kb.text(
     flags.mirror ? "Отзеркалить: ВКЛ" : "Отзеркалить: ВЫКЛ",
     `uniq:toggle:mirror:${taskId}:${count}`,
-  ).row();
+  ).icon(flags.mirror ? iconId("toggleOn") : iconId("toggleOff")).row();
 
-  kb.text("Начать обработку", `uniq:start:${taskId}:${count}`).row();
-  kb.text("Отмена", `uniq:cancel:${taskId}`);
+  kb.text("Начать обработку", `uniq:start:${taskId}:${count}`).icon(iconId("check")).row();
+  kb.text("Отмена", `uniq:cancel:${taskId}`).icon(iconId("cross"));
 
   try {
     if (ctx.callbackQuery) {

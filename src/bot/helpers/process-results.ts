@@ -11,7 +11,7 @@ import { InputFile } from "grammy";
  * Background processing — fire-and-forget after user clicks "Начать обработку".
  * Uses Bun Workers for full parallelism, sends each copy
  * to the user as soon as it's ready via Bot API.
- * Updates the progress message with a live counter and clock emoji.
+ * Updates the progress message with a live counter and premium clock emoji.
  */
 export async function processAndSendResults(
   api: Api<RawApi>,
@@ -23,18 +23,20 @@ export async function processAndSendResults(
   task: InstanceType<typeof VideoTask>,
   modeLabel: string,
 ): Promise<void> {
-  let successCount = 0;
-  let failCount = 0;
   const processedPaths: string[] = [];
   let lastEditTime = 0;
-  const EDIT_COOLDOWN_MS = 1500; // Telegram rate-limit safety
+  const EDIT_COOLDOWN_MS = 1200; // Telegram rate-limit safety
+  let completedCount = 0; // atomic-ish counter: incremented BEFORE progress update
+  let editInProgress = false; // guard against concurrent edits
 
-  /** Update the progress message (throttled to avoid 429) */
-  const updateProgress = async (done: number) => {
+  /** Update the progress message via editMessage (throttled, no concurrent edits) */
+  const updateProgress = async (done: number, force = false): Promise<void> => {
+    if (editInProgress && !force) return;
     const now = Date.now();
-    if (now - lastEditTime < EDIT_COOLDOWN_MS && done < count) return;
-    lastEditTime = now;
+    if (!force && now - lastEditTime < EDIT_COOLDOWN_MS && done < count) return;
 
+    editInProgress = true;
+    lastEditTime = now;
     try {
       await api.editMessageText(
         userId,
@@ -43,7 +45,9 @@ export async function processAndSendResults(
         `<blockquote>${e("art")} Эффекты: ${modeLabel}</blockquote>`,
       );
     } catch {
-      // editMessage may fail if text is identical or message deleted — ignore
+      // editMessage may fail if text is identical or message deleted
+    } finally {
+      editInProgress = false;
     }
   };
 
@@ -54,10 +58,11 @@ export async function processAndSendResults(
       options,
       // Stream each copy to the user immediately as it finishes
       async (index, result) => {
-        const done = successCount + failCount + 1;
+        // Increment counter FIRST so progress reflects real state
+        completedCount++;
+        const done = completedCount;
 
         if (!existsSync(result.outputPath)) {
-          failCount++;
           await updateProgress(done);
           return;
         }
@@ -68,29 +73,38 @@ export async function processAndSendResults(
               `${e("art")} Уникальная копия ${done}/${count}\n` +
               `<blockquote>${e("sparkles")} Эффекты: ${result.appliedEffects.join(", ")}</blockquote>`,
           });
-          successCount++;
           processedPaths.push(result.outputPath);
         } catch (sendErr) {
           console.error(`Failed to send copy ${done}:`, sendErr);
-          // File was processed even if sending failed — still count it
-          successCount++;
           processedPaths.push(result.outputPath);
         }
 
-        await updateProgress(done);
+        // Always update progress after each copy; force on last one
+        await updateProgress(done, done >= count);
       },
     );
 
-    task.status = "done";
+    const successCount = processedPaths.length;
+    const failCount = count - successCount;
+
+    task.status = failCount === 0 ? "done" : (successCount > 0 ? "done" : "failed");
     task.processedPath = processedPaths.join(";");
     await task.save();
 
-    await api.editMessageText(
-      userId,
-      processingMsgId,
-      `${e("check")} Готово! Создано ${successCount} уникальных копий.`,
-    );
+    // Final editMessage — always forced, shows completion
+    try {
+      await api.editMessageText(
+        userId,
+        processingMsgId,
+        `${e("check")} Готово! Создано ${successCount} уникальных копий.` +
+        (failCount > 0 ? `\n${e("warning")} Не удалось: ${failCount}` : ""),
+      );
+    } catch {
+      // message may have been deleted
+    }
   } catch (err) {
+    const successCount = processedPaths.length;
+
     task.status = successCount > 0 ? "done" : "failed";
     task.processedPath = processedPaths.join(";");
     task.error = (err as Error).message;
