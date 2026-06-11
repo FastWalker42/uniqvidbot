@@ -8,6 +8,14 @@ const userSchema = new Schema(
     lastName: { type: String, default: "" },
     isPremium: { type: Boolean, default: false },
     banned: { type: Boolean, default: false },
+    /** Persisted uniquification settings */
+    uniqSettings: {
+      emoji: { type: Boolean, default: true },
+      blur: { type: Boolean, default: true },
+      colorCorrection: { type: Boolean, default: true },
+      glitch: { type: Boolean, default: true },
+      noise: { type: Boolean, default: true },
+    },
   },
   { timestamps: true },
 );

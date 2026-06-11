@@ -6,6 +6,8 @@ export interface UniqFlags {
   emoji: boolean;
   blur: boolean;
   colorCorrection: boolean;
+  glitch: boolean;
+  noise: boolean;
 }
 
 /** Main menu keyboard shown after /start */
@@ -52,6 +54,18 @@ export function uniqToggleKeyboard(flags: UniqFlags): InlineKeyboard {
     flags.colorCorrection ? "Цветокоррекция: ВКЛ" : "Цветокоррекция: ВЫКЛ",
     "uniq:toggle:color",
   ).icon(flags.colorCorrection ? iconId("toggleOn") : iconId("toggleOff")).row();
+
+  // Glitch toggle
+  kb.text(
+    flags.glitch ? "Глитч: ВКЛ" : "Глитч: ВЫКЛ",
+    "uniq:toggle:glitch",
+  ).icon(flags.glitch ? iconId("toggleOn") : iconId("toggleOff")).row();
+
+  // Noise toggle
+  kb.text(
+    flags.noise ? "Шум: ВКЛ" : "Шум: ВЫКЛ",
+    "uniq:toggle:noise",
+  ).icon(flags.noise ? iconId("toggleOn") : iconId("toggleOff")).row();
 
   // Start processing
   kb.text("Начать обработку", "uniq:start").icon(iconId("check")).row();

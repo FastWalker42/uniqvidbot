@@ -1,5 +1,5 @@
 import type { BotConversation, BotContext } from "../context";
-import { VideoTask } from "../../models/index";
+import { VideoTask, User } from "../../models/index";
 import { uniquifyVideoBatch, type UniqOptions } from "../../services/video-processor";
 import { ensureDownloadDir, uniqueFilename, safeDelete } from "../../utils/file-utils";
 import { mainMenuKeyboard, uniqToggleKeyboard, type UniqFlags } from "../../utils/keyboard";
@@ -9,13 +9,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { InputFile } from "grammy";
 
-/** Default flags — all enabled */
-const DEFAULT_FLAGS: UniqFlags = {
-  emoji: true,
-  blur: true,
-  colorCorrection: true,
-};
-
 /**
  * Build a human-readable description of the enabled flags.
  */
@@ -24,6 +17,8 @@ function flagsDescription(flags: UniqFlags): string {
   if (flags.emoji) parts.push("Смайлики");
   if (flags.blur) parts.push("Размытие краёв");
   if (flags.colorCorrection) parts.push("Цветокоррекция");
+  if (flags.glitch) parts.push("Глитч");
+  if (flags.noise) parts.push("Шум");
   return parts.length > 0 ? parts.join(", ") : "Нет эффектов";
 }
 
@@ -33,9 +28,9 @@ function flagsDescription(flags: UniqFlags): string {
  * Flow:
  * 1. User sends a video file
  * 2. Bot asks how many copies
- * 3. Bot shows toggle keyboard for effects (user can toggle on/off)
+ * 3. Bot shows toggle keyboard for effects (loaded from DB, user can toggle)
  * 4. User presses "Начать обработку"
- * 5. Bot processes and sends files back
+ * 5. Bot saves settings to DB, processes and sends files back
  */
 export async function uniquifyConv(
   conversation: BotConversation,
@@ -130,12 +125,21 @@ export async function uniquifyConv(
     return;
   }
 
-  // ── Step 3: Toggle effects ──
-  const flags: UniqFlags = { ...DEFAULT_FLAGS };
+  // ── Step 3: Toggle effects — load saved settings from DB ──
+  const user = await User.findOne({ telegramId: userId });
+  const savedSettings = user?.uniqSettings;
+  const flags: UniqFlags = {
+    emoji: savedSettings?.emoji ?? true,
+    blur: savedSettings?.blur ?? true,
+    colorCorrection: savedSettings?.colorCorrection ?? true,
+    glitch: savedSettings?.glitch ?? true,
+    noise: savedSettings?.noise ?? true,
+  };
 
   await countCtx.reply(
     `${e("art")} <b>Настройки уникализации</b>\n\n` +
-    `Выбери какие эффекты применить. Каждый эффект будет применён со случайной силой для каждой копии.\n\n` +
+    `Выбери какие эффекты применить. Каждый эффект будет применён со случайной силой (0–10%) для каждой копии.\n` +
+    `Гарантируется минимум 2 ненулевых эффекта на копию. Смайлик — всегда если включён.\n\n` +
     `<blockquote>${e("sparkles")} Текущие: ${flagsDescription(flags)}</blockquote>`,
     { reply_markup: uniqToggleKeyboard(flags) },
   );
@@ -160,12 +164,15 @@ export async function uniquifyConv(
       if (flag === "emoji") flags.emoji = !flags.emoji;
       else if (flag === "blur") flags.blur = !flags.blur;
       else if (flag === "color") flags.colorCorrection = !flags.colorCorrection;
+      else if (flag === "glitch") flags.glitch = !flags.glitch;
+      else if (flag === "noise") flags.noise = !flags.noise;
 
       await toggleCtx.answerCallbackQuery();
 
       await toggleCtx.editMessageText(
         `${e("art")} <b>Настройки уникализации</b>\n\n` +
-        `Выбери какие эффекты применить. Каждый эффект будет применён со случайной силой для каждой копии.\n\n` +
+        `Выбери какие эффекты применить. Каждый эффект будет применён со случайной силой (0–10%) для каждой копии.\n` +
+        `Гарантируется минимум 2 ненулевых эффекта на копию. Смайлик — всегда если включён.\n\n` +
         `<blockquote>${e("sparkles")} Текущие: ${flagsDescription(flags)}</blockquote>`,
         { reply_markup: uniqToggleKeyboard(flags) },
       );
@@ -187,11 +194,20 @@ export async function uniquifyConv(
     }
   }
 
+  // ── Save settings to DB ──
+  await User.findOneAndUpdate(
+    { telegramId: userId },
+    { uniqSettings: flags },
+    { new: true },
+  );
+
   // ── Step 4: Process and send ──
   const options: UniqOptions = {
     emoji: flags.emoji,
     blur: flags.blur,
     colorCorrection: flags.colorCorrection,
+    glitch: flags.glitch,
+    noise: flags.noise,
     metadataStrip: true,
   };
 
@@ -200,7 +216,7 @@ export async function uniquifyConv(
   const processingMsg = await ctx.api.sendMessage(
     userId!,
     `${e("refresh")} Обрабатываю ${count} копий...\n\n` +
-    `<blockquote>${e("art")} Эффекты: ${modeLabel}\n${e("zap")} Это может занять некоторое время</blockquote>`,
+    `<blockquote>${e("art")} Эффекты: ${modeLabel}\n${e("zap")} Каждый эффект применяется со случайной силой 0–10%\nЭто может занять некоторое время</blockquote>`,
   );
 
   const task = await VideoTask.create({
