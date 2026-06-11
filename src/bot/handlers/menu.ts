@@ -1,12 +1,16 @@
 import { type Composer, InlineKeyboard } from "grammy";
 import type { BotContext } from "../context";
-import { Account, Proxy } from "../../models/index";
+import { Account, Proxy, VideoTask, User } from "../../models/index";
 import {
   mainMenuKeyboard, backKeyboard, accountListKeyboard,
   channelSettingsKeyboard, proxyListKeyboard,
 } from "../../utils/keyboard";
 import { e, iconId } from "../../utils/emoji";
 import { showMainMenu, showAccountList, showProxyList, showTaskStatus } from "../helpers/show-views";
+import { showToggleKeyboard } from "../conversations/uniquify";
+import { type UniqOptions } from "../../services/video-processor";
+import { processAndSendResults } from "../helpers/process-results";
+import { safeDelete } from "../../utils/file-utils";
 
 /**
  * Register all inline menu callback handlers.
@@ -164,11 +168,124 @@ export function registerMenuHandler(bot: Composer<BotContext>) {
       `${e("art")} <b>Уникализация видео</b>\n\n` +
       `Отправь видеофайл (MP4, до 60 секунд) в чат.\n` +
       `Бот создаст уникальные копии и отправит их тебе файлами.\n\n` +
-      `<blockquote>${e("sparkles")} Доступные эффекты: смайлики, размытие, цветокоррекция, микро-скорость, обрезка метаданных\n` +
-      `${e("zap")} Каждая копия — уникальна для анти-спам фильтров YouTube</blockquote>`,
+      `<blockquote>${e("sparkles")} Доступные эффекты: смайлики, размытие, цветокоррекция, глитч, шум, отзеркаливание\n` +
+      `Каждая копия — уникальна для анти-спам фильтров YouTube</blockquote>`,
       { reply_markup: backKeyboard() },
     );
     await ctx.conversation.enter("uniquifyConv");
+  });
+
+  // ── Uniquify: toggle effect ──
+  // Format: uniq:toggle:<flag>:<taskId>:<count>
+  bot.callbackQuery(/^uniq:toggle:/, async (ctx) => {
+    const data = ctx.callbackQuery.data!;
+    const parts = data.split(":");
+    // parts: ["uniq", "toggle", flag, taskId, count]
+    const flag = parts[2];
+    const taskId = parts[3];
+    const count = parseInt(parts[4], 10);
+
+    const userId = ctx.from!.id;
+    const user = await User.findOne({ telegramId: userId });
+    if (!user) {
+      await ctx.answerCallbackQuery("Ошибка: пользователь не найден");
+      return;
+    }
+
+    // Toggle the flag in user settings
+    const settings = user.uniqSettings as Record<string, boolean>;
+    if (flag in settings) {
+      (settings as any)[flag] = !(settings as any)[flag];
+    }
+    await user.save();
+
+    await ctx.answerCallbackQuery();
+    await showToggleKeyboard(ctx, taskId, count);
+  });
+
+  // ── Uniquify: start processing ──
+  // Format: uniq:start:<taskId>:<count>
+  bot.callbackQuery(/^uniq:start:/, async (ctx) => {
+    const data = ctx.callbackQuery.data!;
+    const parts = data.split(":");
+    const taskId = parts[2];
+    const count = parseInt(parts[3], 10);
+    const userId = ctx.from!.id;
+
+    await ctx.answerCallbackQuery();
+
+    const task = await VideoTask.findOne({ _id: taskId, userId, status: "pending" });
+    if (!task) {
+      await ctx.editMessageText(`${e("cross")} Задача не найдена или уже запущена.`);
+      return;
+    }
+
+    // Read latest settings from DB (user may have toggled)
+    const user = await User.findOne({ telegramId: userId });
+    const savedSettings = user?.uniqSettings;
+    const options: UniqOptions = {
+      emoji: savedSettings?.emoji ?? true,
+      blur: savedSettings?.blur ?? true,
+      colorCorrection: savedSettings?.colorCorrection ?? true,
+      glitch: savedSettings?.glitch ?? true,
+      noise: savedSettings?.noise ?? true,
+      mirror: savedSettings?.mirror ?? false,
+      metadataStrip: true,
+    };
+
+    // Update task with final options and set processing
+    task.uniqOptions = options as any;
+    task.status = "processing";
+    await task.save();
+
+    // Build label
+    const labelParts: string[] = [];
+    if (options.emoji) labelParts.push("Смайлики");
+    if (options.blur) labelParts.push("Размытие краёв");
+    if (options.colorCorrection) labelParts.push("Цветокоррекция");
+    if (options.glitch) labelParts.push("Глитч");
+    if (options.noise) labelParts.push("Шум");
+    if (options.mirror) labelParts.push("Отзеркалить");
+    const modeLabel = labelParts.length > 0 ? labelParts.join(", ") : "Нет эффектов";
+
+    await ctx.editMessageText(
+      `${e("clock")} Обработка 0/${count} копий...\n\n` +
+      `<blockquote>${e("art")} Эффекты: ${modeLabel}</blockquote>`,
+    );
+
+    const processingMsgId = ctx.callbackQuery?.message?.message_id!;
+
+    // Fire-and-forget background processing
+    processAndSendResults(
+      ctx.api,
+      userId,
+      task.originalPath,
+      count,
+      options,
+      processingMsgId,
+      task,
+      modeLabel,
+    ).catch((err) => {
+      console.error("Background processing error:", err);
+    });
+  });
+
+  // ── Uniquify: cancel ──
+  // Format: uniq:cancel:<taskId>
+  bot.callbackQuery(/^uniq:cancel:/, async (ctx) => {
+    const data = ctx.callbackQuery.data!;
+    const taskId = data.split(":")[2];
+    const userId = ctx.from!.id;
+
+    await ctx.answerCallbackQuery();
+
+    const task = await VideoTask.findOne({ _id: taskId, userId, status: "pending" });
+    if (task) {
+      await safeDelete(task.originalPath);
+      await task.deleteOne();
+    }
+
+    await ctx.editMessageText(`${e("cross")} Отменено.`);
   });
 
   // ── Task Status ──

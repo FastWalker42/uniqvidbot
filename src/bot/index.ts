@@ -38,7 +38,7 @@ export function createBot() {
 
   // Handle all other callback queries that don't match
   bot.on("callback_query:data", async (ctx) => {
-    await ctx.answerCallbackQuery("Неизвестное действие");
+    await ctx.answerCallbackQuery();
   });
 
   bot.catch((err) => {
